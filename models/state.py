@@ -1,0 +1,10 @@
+from enum import Enum
+
+
+class State(Enum):
+    AVAILABLE = "AVAILABLE"
+    RESERVED = "RESERVED"
+    INUSE = "INUSE"
+    MAINTENANCE = "MAINTENANCE"
+    EMERGENCYLOCK = "EMERGENCYLOCK"
+    RELOCATING = "RELOCATING"
