@@ -21,19 +21,10 @@ class Vehicule(ABC):
         self.hasActiveRental = False
 
     def updateTelemetry(self, telemetryData: TelemetryData) -> None:
-       self.telemetryData = telemetryData
-    
-  
-       if self.telemetryData.temperature >= 60:
-        print(f"Vehicle {self.vehiculeId} is overheating, so initiating Emergency Lock.")
-        self.changeState(State.EMERGENCY_LOCK)
-    
-       if self.telemetryData.batteryLevel <= 5:
-        print(f"Vehicle {self.vehiculeId} became battery low, so schedule maintenance.")
-        self.changeState(State.MAINTENANCE)
+        self.telemetryData = telemetryData
 
     def changeState(self, newState: State) -> None:
-        if self.state == State.MAINTENANCE and newState == State.IN_USE:
+        if self.state == State.MAINTENANCE and newState == State.INUSE:
             print(f"Not possible to change Vehicle {self.vehiculeId} from MAINTENANCE to IN USE")
             return
         

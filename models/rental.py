@@ -29,7 +29,7 @@ class Rental:
             duration_seconds = (self.endTime - self.actualStartTime).total_seconds()
             return duration_seconds / 60 
         return None
-        pass
+        
 
     def calculateRentalCost(self) -> float:
         #TODO: Implement the logic to calculate the cost of the rental for the user with the given vehiculeId
