@@ -2,6 +2,8 @@ from typing import Optional
 from models import Vehicule, Rental, User
 from regulations import Regulation
 from services import PersistenceManager, AuditLogger
+from datetime import datetime
+from models import RentalStatus, State
 
 
 class SmartMoveCentralController:
@@ -62,12 +64,28 @@ class SmartMoveCentralController:
         # Change rental status to COMPLETED, set endTime, calculate cost
         # Change vehicule state to AVAILABLE
         # Log event
-        pass
+        rental.endTime = datetime.now()
+        rental.status = RentalStatus.COMPLETED
+
+    # Calculate base cost
+        rental.calculateRentalCost()
+
+    # APPLY CITY RULES HERE
+        self.applyRegulations(rental.vehicule, rental)
+
+    # Change vehicle state
+        rental.vehicule.changeState(State.AVAILABLE)
+        rental.vehicule.hasActiveRental = False
+
+        if self.auditLogger:
+         self.auditLogger.logEvent("VEHICLE_RETURNED")
+       
 
     def processTelemetryData(self, vehicule: Vehicule) -> None:
         #TODO: Implement the logic to process the telemetry data received from the vehicule with the given vehiculeId
         pass
 
-    def applyRegulations(self, vehicule: Vehicule) -> None:
+    def applyRegulations(self, vehicule: Vehicule, rental: Rental) -> None:
         #TODO: Implement the logic to apply the regulations to the given vehicule
-        pass
+         if self.regulations is not None:
+            self.regulations.applyRegulation(vehicule, rental)

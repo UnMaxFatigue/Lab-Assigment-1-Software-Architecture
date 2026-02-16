@@ -4,7 +4,7 @@ Main entry point for the SmartMove system.
 from datetime import datetime
 from models import State, User, Rental
 from vehicules import Bike, Scooter
-from regulations import LondonRegulation
+from regulations import LondonRegulation ,RomeRegulation
 from controllers import SmartMoveCentralController
 from repositories import VehiculeCSVRepository, UserCSVRepository, RentalCSVRepository
 from services import AuditLogger, PersistenceManager
@@ -50,6 +50,14 @@ def main() -> None:
     print(f"Rental status: {rental1.status.value}")
     print(f"Scheduled start: {rental1.scheduledStartTime}")
 
+
+    print("\n--- Testing Rome Regulation ---")
+
+
+    scooter = Scooter(1, 80, 25, State.AVAILABLE)
+    rome = RomeRegulation()
+
+    rome.applyRegulation(scooter,rental1)
 
 if __name__ == "__main__":
     main()
