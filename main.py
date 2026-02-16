@@ -60,11 +60,8 @@ def main() -> None:
     rome = RomeRegulation()
 
     rome.applyRegulation(scooter,rental1)
-
-if __name__ == "__main__":
-    main()
-    
-    # Save all data
+        
+    # Save all data    
     persistenceManager.saveAll(controller.vehicules, controller.users, controller.rentals)
 
 

@@ -60,7 +60,6 @@ class SmartMoveCentralController:
         pass
 
     def returnVehicule(self, rental: Rental) -> None:
-        #TODO: Implement the logic to return a vehicule from the user with the given the rental
         # Change rental status to COMPLETED, set endTime, calculate cost
         # Change vehicule state to AVAILABLE
         # Log event
