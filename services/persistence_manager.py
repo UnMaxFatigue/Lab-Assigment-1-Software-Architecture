@@ -1,6 +1,7 @@
 from typing import Tuple, List
 from models import Vehicule, User, Rental
 from repositories import VehiculeCSVRepository, UserCSVRepository, RentalCSVRepository
+from .audit_logger import AuditLogger
 
 
 class PersistenceManager:
@@ -9,22 +10,26 @@ class PersistenceManager:
     vehiculeRepository: VehiculeCSVRepository
     userRepository: UserCSVRepository
     rentalRepository: RentalCSVRepository
+    auditLogger: AuditLogger
     
     def __init__(
         self,
         vehiculeRepository: VehiculeCSVRepository,
         userRepository: UserCSVRepository,
-        rentalRepository: RentalCSVRepository
+        rentalRepository: RentalCSVRepository,
+        auditLogger: AuditLogger
     ) -> None:
         self.vehiculeRepository = vehiculeRepository
         self.userRepository = userRepository
         self.rentalRepository = rentalRepository
+        self.auditLogger = auditLogger
     
     def loadAll(self) -> Tuple[List[Vehicule], List[User], List[Rental]]:
         """Load all data from repositories."""
         vehicules = self.vehiculeRepository.load()
         users = self.userRepository.load()
         rentals = self.rentalRepository.load()
+        self.auditLogger.logEvent("Loaded all data: vehicules, users, rentals")
         return vehicules, users, rentals
     
     def saveAll(self, vehicules: List[Vehicule], users: List[User], rentals: List[Rental]) -> None:
@@ -32,3 +37,4 @@ class PersistenceManager:
         self.vehiculeRepository.save(vehicules)
         self.userRepository.save(users)
         self.rentalRepository.save(rentals)
+        self.auditLogger.logEvent(f"Saved all data: {len(vehicules)} vehicules, {len(users)} users, {len(rentals)} rentals")
