@@ -18,11 +18,11 @@ def main() -> None:
     userRepo = UserCSVRepository()
     rentalRepo = RentalCSVRepository()
     
-    # Initialize persistence manager
-    persistenceManager = PersistenceManager(vehiculeRepo, userRepo, rentalRepo)
-    
     # Initialize audit logger
     auditLogger = AuditLogger("data/audit.log")
+    
+    # Initialize persistence manager
+    persistenceManager = PersistenceManager(vehiculeRepo, userRepo, rentalRepo, auditLogger)
     
     # Initialize controller with dependency injection
     controller = SmartMoveCentralController(
@@ -40,19 +40,20 @@ def main() -> None:
     
     # Create a user
     user1 = User("John Doe")
+    controller.users.append(user1)
     
     # Create a rental - scheduled to start now
     rental1 = Rental(user1, bike1, scheduledStartTime=datetime.now())
+    controller.rentals.append(rental1)
     
     print("SmartMove system initialized successfully!")
     print(f"Available vehicles: {len(controller.vehicules)}")
     print(f"User: {user1.name}")
     print(f"Rental status: {rental1.status.value}")
     print(f"Scheduled start: {rental1.scheduledStartTime}")
-
-
-if __name__ == "__main__":
-    main()
+    
+    # Save all data
+    persistenceManager.saveAll(controller.vehicules, controller.users, controller.rentals)
 
 
 if __name__ == "__main__":
