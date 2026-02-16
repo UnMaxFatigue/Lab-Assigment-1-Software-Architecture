@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from models import Vehicule, Rental, User
 from regulations import Regulation
 from services import PersistenceManager, AuditLogger
@@ -7,9 +7,9 @@ from models import RentalStatus, State
 
 
 class SmartMoveCentralController:
-    vehicules: list[Vehicule]
-    users: list[User]
-    rentals: list[Rental]
+    vehicules: List[Vehicule]
+    users: List[User]
+    rentals: List[Rental]
     regulations: Optional[Regulation]
     persistenceManager: PersistenceManager
     auditLogger: Optional[AuditLogger]
