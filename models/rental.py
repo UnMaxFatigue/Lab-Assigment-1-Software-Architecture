@@ -24,7 +24,6 @@ class Rental:
         self.status = RentalStatus.RESERVED
 
     def calculateRentalDuration(self) -> Optional[float]:
-        #TODO: Implement the logic to calculate the duration of the rental for the user with the given vehiculeId
         if self.actualStartTime is not None and self.endTime is not None:
             duration_seconds = (self.endTime - self.actualStartTime).total_seconds()
             return duration_seconds / 60 
@@ -32,7 +31,6 @@ class Rental:
         
 
     def calculateRentalCost(self) -> float:
-        #TODO: Implement the logic to calculate the cost of the rental for the user with the given vehiculeId
         # Assuming 0.5 as the cost for 1 minute
         duration = self.calculateRentalDuration()
         if duration is not None:
