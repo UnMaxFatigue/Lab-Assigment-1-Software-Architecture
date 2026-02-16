@@ -25,8 +25,17 @@ class Rental:
 
     def calculateRentalDuration(self) -> Optional[float]:
         #TODO: Implement the logic to calculate the duration of the rental for the user with the given vehiculeId
+        if self.actualStartTime is not None and self.endTime is not None:
+            duration_seconds = (self.endTime - self.actualStartTime).total_seconds()
+            return duration_seconds / 60 
+        return None
         pass
 
     def calculateRentalCost(self) -> float:
         #TODO: Implement the logic to calculate the cost of the rental for the user with the given vehiculeId
-        pass
+        # Assuming 0.5 as the cost for 1 minute
+        duration = self.calculateRentalDuration()
+        if duration is not None:
+            self.cost = duration * 0.5
+            return self.cost
+        return 0.0
