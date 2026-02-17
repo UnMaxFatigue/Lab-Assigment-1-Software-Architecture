@@ -3,7 +3,7 @@ from models import Vehicule
 from models import Rental
 from models import State
 from vehicules import Scooter
-from regulation import Regulation
+from .regulation import Regulation
 
 
 RESTRICTED_ZONES = [

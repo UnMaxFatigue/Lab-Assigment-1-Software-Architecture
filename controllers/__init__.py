@@ -1,3 +1,3 @@
 from .smart_controller import SmartMoveCentralController
-
-__all__ = ['SmartMoveCentralController']
+from .http_controller import initializeServer
+__all__ = ['SmartMoveCentralController', 'initializeServer']

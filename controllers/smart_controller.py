@@ -4,25 +4,28 @@ from regulations import Regulation
 from services import PersistenceManager, AuditLogger
 from datetime import datetime
 from models import RentalStatus, State
+from vehicules import Bike, Moped, Scooter
 
 
 class SmartMoveCentralController:
     vehicules: List[Vehicule]
     users: List[User]
     rentals: List[Rental]
-    regulations: Optional[Regulation]
+    regulations: List[Regulation]
     persistenceManager: PersistenceManager
     auditLogger: Optional[AuditLogger]
 
     def __init__(
         self,
         persistenceManager: PersistenceManager,
-        auditLogger: Optional[AuditLogger] = None
+        auditLogger: Optional[AuditLogger] = None,
+        regulations: List[Regulation] = None
+
     ) -> None:
         self.vehicules = []
         self.users = []
         self.rentals = []
-        self.regulations = None
+        self.regulations = regulations
         self.persistenceManager = persistenceManager
         self.auditLogger = auditLogger
     
@@ -281,6 +284,8 @@ class SmartMoveCentralController:
             self.auditLogger.logEvent(msg)
         return self.saveData()
 
+    def assignMaintenance(self, vehicle: Vehicule) -> bool: pass
+
     def completeMaintenance(self, vehicule: Vehicule) -> bool:
         """Manually end maintenance and restore availability."""
         if vehicule.state != State.MAINTENANCE:
@@ -329,3 +334,54 @@ class SmartMoveCentralController:
             self.auditLogger.logEvent(f"RELOCATION_COMPLETED: Vehicle {vehicule.vehiculeId}")
         return self.saveData()
     
+    def registerUser(self, username:str) -> bool:
+        
+        if self.findUserByName(username) is not None:
+            return False
+        
+        self.users.append(username)
+
+        if self.saveData():
+            self.auditLogger.logEvent(f"USER {username} REGISTERD")
+            return True
+        else:
+            return False
+    
+    def registerVehicle(self, vehicleId:int, vehicleType:str) -> bool:
+        
+        if self.getVehicleFromId(vehicleId) is not None:
+            return False
+        
+        if vehicleType == "bycicle":
+            vehicle = Bike(vehicleId, 80, 20, State.AVAILABLE)
+        elif vehicleType == "scooter":
+            vehicle = Scooter(vehicleId, 80, 20, State.AVAILABLE)
+        elif vehicleType == "moped":
+            vehicle = Moped(vehicleId, 80, 20, State.AVAILABLE)
+        else:
+            return False
+
+        self.vehicules.append(vehicle)
+
+        if self.saveData():
+            self.auditLogger(f"VEHICLE {vehicle.vehiculeId} REGISTERD")
+            return True
+        else:      
+            return False
+
+    def findUserByName(self, username:str) -> bool:
+        return username in self.users
+
+    def getVehicleFromId(self, vehicleId:int) -> Optional[Vehicule]:
+        for vehicle in self.vehicules:
+            if vehicle.vehiculeId == vehicleId:
+                return vehicle
+        return None
+
+    def getRentalFromNameId(self, username:str, vehicleId:int) -> Optional[Rental]:
+        for rental in self.rentals:
+            if (rental.user.name == username
+                and rental.vehicule.vehiculeId == vehicleId
+                and (rental.status.ACTIVE or rental.status.RESERVED)):
+                return rental
+        return None
