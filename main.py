@@ -28,8 +28,11 @@ def initializeControler() -> SmartMoveCentralController:
     controller = SmartMoveCentralController(
         persistenceManager=persistenceManager,
         auditLogger=auditLogger,
-        regulations=[LondonRegulation,RomeRegulation,MilanRegulation]
+        regulations=[LondonRegulation(), RomeRegulation(), MilanRegulation()]
     )
+    
+    # Load existing data from CSV files
+    controller.loadData()
 
     return controller 
 
@@ -41,12 +44,16 @@ def main() -> None:
     controller = initializeControler()
     httpServer = initializeServer(controller)
 
+    # Start background telemetry monitoring (lab requirement)
+    controller.startBackgroundMonitoring(interval_seconds=10)
+
     try:
         print("Server started on port 8080")
         httpServer.serve_forever()
     except KeyboardInterrupt:
         print("Interrupt recived. Closing down.")
     finally:
+        controller.stopBackgroundMonitoring()
         httpServer.shutdown()
     #testsuit(controller)
     

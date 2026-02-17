@@ -25,8 +25,8 @@ class HttpHandler(BaseHTTPRequestHandler):
                     self.end_headers()
                 else:
                     reserveCheck = self.moveControl.rentVehicule(
-                            user, 
                             vehicle, 
+                            user, 
                             datetime.now() 
                             )
 
@@ -155,7 +155,7 @@ class HttpHandler(BaseHTTPRequestHandler):
                     self.send_response(422)
                     self.end_headers()
                 else:
-                    reserveCheck = self.moveControl.assignRelocation(vehicle)
+                    reserveCheck = self.moveControl.relocateVehicule(vehicle)
                     if reserveCheck:
                         self.send_response(200)
                         self.end_headers()
@@ -227,13 +227,22 @@ class HttpHandler(BaseHTTPRequestHandler):
                     self.send_response(422)
                     self.end_headers()
                 else:
-                    reserveCheck = self.moveControl.processTelemetryData(vehicle)
-                    if reserveCheck:
-                        self.send_response(200)
-                        self.end_headers()
-                    else:
-                        self.send_response(422)
-                        self.end_headers()
+                    # Extract telemetry data from request
+                    from models import TelemetryData, GPSLocation
+                    
+                    batteryLevel = int(data.get("batteryLevel", vehicle.telemetryData.batteryLevel))
+                    temperature = int(data.get("temperature", vehicle.telemetryData.temperature))
+                    isFaulted = data.get("isFaulted", False)
+                    
+                    location = None
+                    if "latitude" in data and "longitude" in data:
+                        location = GPSLocation(float(data["latitude"]), float(data["longitude"]))
+                    
+                    newTelemetry = TelemetryData(batteryLevel, temperature, location, isFaulted)
+                    
+                    self.moveControl.processTelemetryData(vehicle, newTelemetry)
+                    self.send_response(200)
+                    self.end_headers()
 
             except (json.JSONDecodeError, ValueError):
                 self.send_response(400)
