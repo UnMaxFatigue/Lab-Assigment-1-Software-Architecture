@@ -50,8 +50,8 @@ class VehiculeCSVRepository:
                 longitude = float(row['longitude']) if row['longitude'] else None
                 lastKnownLocation = GPSLocation(latitude, longitude) if latitude is not None and longitude is not None else None
                 # Import concrete classes
-                from vehicules import Bike, Scooter, Car, Moped
-                cls = {'Bike': Bike, 'Scooter': Scooter, 'Car': Car, 'Moped': Moped}.get(vehicule_type, Bike)
+                from vehicules import Bike, Scooter, Moped
+                cls = {'Bike': Bike, 'Scooter': Scooter, 'Moped': Moped}.get(vehicule_type, Bike)
                 vehicule = cls(vehiculeId, batteryLevel, temperature, state)
                 vehicule.hasActiveRental = hasActiveRental
                 vehicule.lastKnownLocation = lastKnownLocation
