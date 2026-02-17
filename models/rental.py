@@ -26,7 +26,9 @@ class Rental:
     def calculateRentalDuration(self) -> Optional[float]:
         if self.actualStartTime is not None and self.endTime is not None:
             duration_seconds = (self.endTime - self.actualStartTime).total_seconds()
-            return duration_seconds / 60 
+            duration_minutes = duration_seconds / 60
+            # Prevent negative duration (edge case handling)
+            return max(0.0, duration_minutes)
         return None
         
 
