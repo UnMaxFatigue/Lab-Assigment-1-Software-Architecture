@@ -3,7 +3,7 @@ from typing import Optional
 from models import Vehicule
 from models import Rental
 from vehicules import Moped
-from regulation import Regulation
+from .regulation import Regulation
 
 
 class MilanRegulation(Regulation):

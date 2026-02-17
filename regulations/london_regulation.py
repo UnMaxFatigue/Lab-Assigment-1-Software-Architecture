@@ -1,7 +1,7 @@
 from typing import Optional
 from models import Vehicule
 from models import Rental
-from regulation import Regulation
+from .regulation import Regulation
 
 
 class LondonRegulation(Regulation):
