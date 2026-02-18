@@ -31,7 +31,7 @@ class SmartMoveCentralController:
         self.regulations = regulations
         self.persistenceManager = persistenceManager
         self.auditLogger = auditLogger
-        self._lock = threading.Lock()  # Thread safety for concurrent operations
+        self._lock = threading.RLock()  # Reentrant lock for thread safety
         self._monitoring_enabled = False
         self._telemetry_monitor_thread = None
     
@@ -147,6 +147,42 @@ class SmartMoveCentralController:
                 self.vehicules, self.users, self.rentals = v, u, r
             
             return True
+
+    def cancelRental(self, rental: Rental) -> bool:
+        """Cancel a reserved rental (only works if status is RESERVED)."""
+        with self._lock:
+            # Validate rental is RESERVED
+            if rental.status != RentalStatus.RESERVED:
+                print(f"Cannot cancel rental: Rental status is {rental.status.value}, expected RESERVED")
+                if self.auditLogger:
+                    self.auditLogger.logEvent("CANCEL_REJECTED_STATUS")
+                return False
+            
+            try:
+                # Mark rental as cancelled
+                rental.status = RentalStatus.CANCELLED
+                
+                # Return vehicle to available state
+                rental.vehicule.changeState(State.AVAILABLE)
+                rental.vehicule.hasActiveRental = False
+                
+                if self.auditLogger:
+                    self.auditLogger.logEvent(f"RENTAL_CANCELLED: Vehicle {rental.vehicule.vehiculeId}")
+                
+                # Save with automatic rollback on failure
+                success, (v, u, r) = self.persistenceManager.saveAll(
+                    self.vehicules, self.users, self.rentals
+                )
+                
+                if not success:
+                    # Restore from disk
+                    self.vehicules, self.users, self.rentals = v, u, r
+                
+                return success
+                
+            except Exception as e:
+                print(f"Rental cancellation failed: {e}")
+                return False
 
     def returnVehicule(self, rental: Rental, emergency: bool = False, reason: str = "") -> bool:
         """Return a rented vehicule and complete the rental (normal or emergency)."""
@@ -434,7 +470,7 @@ class SmartMoveCentralController:
                 self.vehicules, self.users, self.rentals = v, u, r
             return success
     
-    def registerUser(self, username: str) -> bool:
+    def registerUser(self, username: str, password: str = "") -> bool:
         with self._lock:
             # Check if user already exists
             for user in self.users:
@@ -442,16 +478,26 @@ class SmartMoveCentralController:
                     return False
             
             user = User(username)
+            if password:
+                user.set_password(password)
             self.users.append(user)
 
             success, (v, u, r) = self.persistenceManager.saveAll(self.vehicules, self.users, self.rentals)
             if success:
                 if self.auditLogger:
-                    self.auditLogger.logEvent(f"USER {username} REGISTERD")
+                    self.auditLogger.logEvent(f"USER {username} REGISTERED")
                 return True
             else:
                 self.vehicules, self.users, self.rentals = v, u, r
                 return False
+    
+    def authenticateUser(self, username: str, password: str) -> bool:
+        """Authenticate a user with username and password."""
+        with self._lock:
+            user = self.findUserByName(username)
+            if user and user.verify_password(password):
+                return True
+            return False
     
     def registerVehicle(self, vehicleId: int, vehicleType: str) -> bool:
         with self._lock:
