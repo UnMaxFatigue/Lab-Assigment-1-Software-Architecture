@@ -32,6 +32,6 @@ def test_rental_duration_and_cost():
     r.actualStartTime = datetime.now()
     r.endTime = r.actualStartTime + timedelta(minutes=30)
     duration = r.calculateRentalDuration()
-    assert duration == 30.0
+    assert duration == 30
     cost = r.calculateRentalCost()
-    assert cost == 15.0
+    assert cost == 15

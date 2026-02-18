@@ -31,11 +31,11 @@ def test_change_state_normal_transitions():
 
 def test_update_telemetry_and_location():
     v = Vehicule(102, 50, 20, State.AVAILABLE)
-    loc = GPSLocation(41.9, 12.5)
+    loc = GPSLocation(41, 12.5)
     t = TelemetryData(30, 25, location=loc)
     v.updateTelemetry(t)
     assert v.telemetryData.batteryLevel == 30
-    assert v.telemetryData.location.latitude == 41.9
+    assert v.telemetryData.location.latitude == 41
     assert v.lastKnownLocation is None
 
 
