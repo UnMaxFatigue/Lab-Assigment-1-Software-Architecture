@@ -1,12 +1,16 @@
 import random
 from typing import Optional
-from models import Vehicule
+from models import Vehicule, GPSLocation
 from models import Rental
 from vehicules import Moped
 from .regulation import Regulation
 
 
 class MilanRegulation(Regulation):
+    def isInJurisdiction(self, location: GPSLocation) -> bool:
+        """Check if location is in Milan (approximately 45.3-45.6°N, 9.0-9.4°E)."""
+        return (45.3 <= location.latitude <= 45.6 and 
+                9.0 <= location.longitude <= 9.4)
 
     def applyPreTripRegulation(self, vehicule: Vehicule, rental: Rental) -> bool:
         if not isinstance(vehicule, Moped):

@@ -75,16 +75,47 @@ class HttpHandler(BaseHTTPRequestHandler):
             username = self.path.split("/")[-1]
             user = self.moveControl.findUserByName(username)
             if user:
+                from datetime import datetime, timedelta
                 rentals_data = []
+                now = datetime.now()
                 for rental in self.moveControl.rentals:
-                    if rental.user.name == username and rental.status.name in ["RESERVED", "ACTIVE"]:
-                        rentals_data.append({
-                            "vehicleId": rental.vehicule.vehiculeId,
-                            "vehicleType": rental.vehicule.__class__.__name__.lower(),
-                            "status": rental.status.name,
-                            "scheduledStartTime": rental.scheduledStartTime.isoformat() if rental.scheduledStartTime else None,
-                            "actualStartTime": rental.actualStartTime.isoformat() if rental.actualStartTime else None
-                        })
+                    try:
+                        if rental.user.name == username:
+                            # Show RESERVED and ACTIVE rentals
+                            # Also show CANCELLED rentals from last 30 minutes (emergency terminations)
+                            is_active = rental.status.name in ["RESERVED", "ACTIVE"]
+                            is_recent_cancellation = (
+                                rental.status.name == "CANCELLED" and 
+                                rental.endTime and 
+                                (now - rental.endTime) < timedelta(minutes=30)
+                            )
+                            
+                            if is_active or is_recent_cancellation:
+                                rental_data = {
+                                    "vehicleId": rental.vehicule.vehiculeId,
+                                    "vehicleType": rental.vehicule.__class__.__name__.lower(),
+                                    "status": rental.status.name,
+                                    "scheduledStartTime": rental.scheduledStartTime.isoformat() if rental.scheduledStartTime else None,
+                                    "actualStartTime": rental.actualStartTime.isoformat() if rental.actualStartTime else None,
+                                    "endTime": rental.endTime.isoformat() if rental.endTime else None,
+                                    "cost": rental.cost if rental.cost else None
+                                }
+                                
+                                # Add vehicle telemetry if available
+                                if rental.vehicule and rental.vehicule.telemetryData:
+                                    rental_data["vehicleState"] = rental.vehicule.state.name
+                                    rental_data["batteryLevel"] = rental.vehicule.telemetryData.batteryLevel
+                                    rental_data["temperature"] = rental.vehicule.telemetryData.temperature
+                                    if rental.vehicule.lastKnownLocation:
+                                        rental_data["latitude"] = rental.vehicule.lastKnownLocation.latitude
+                                        rental_data["longitude"] = rental.vehicule.lastKnownLocation.longitude
+                                
+                                rentals_data.append(rental_data)
+                    except Exception as e:
+                        # Log error but continue processing other rentals
+                        print(f"Error processing rental for vehicle {rental.vehicule.vehiculeId if rental.vehicule else 'N/A'}: {e}")
+                        continue
+                
                 self.responseJson(200, json.dumps(rentals_data))
             else:
                 self.send_response(404)
@@ -172,15 +203,19 @@ class HttpHandler(BaseHTTPRequestHandler):
                 
                 if rental is None:
                     self.send_response(422)
+                    self.send_header("Content-Type", "application/json")
                     self.end_headers()
+                    self.wfile.write(json.dumps({"error": "Rental not found"}).encode())
                 else:
-                    reserveCheck = self.moveControl.activateRental(rental)
-                    if reserveCheck:
+                    success, error_msg = self.moveControl.activateRental(rental)
+                    if success:
                         self.send_response(200)
                         self.end_headers()
                     else:
                         self.send_response(422)
+                        self.send_header("Content-Type", "application/json")
                         self.end_headers()
+                        self.wfile.write(json.dumps({"error": error_msg or "Cannot activate rental"}).encode())
 
             except (json.JSONDecodeError, ValueError):
                 self.send_response(400)
@@ -442,7 +477,38 @@ class HttpHandler(BaseHTTPRequestHandler):
                 response_data = {"success": False, "error": "Invalid request"}
                 self.responseJson(400, json.dumps(response_data))
 
-            
+        elif self.path == "/shutdown":
+            # Shutdown endpoint for graceful server termination
+            try:
+                print("\n[SHUTDOWN] Received shutdown request...")
+                
+                # Save all data before shutting down
+                print("[SHUTDOWN] Saving data...")
+                self.moveControl.saveData()
+                
+                # Stop background monitoring
+                print("[SHUTDOWN] Stopping background monitoring...")
+                self.moveControl.stopBackgroundMonitoring()
+                
+                # Send success response
+                response_data = {"success": True, "message": "Server shutting down gracefully"}
+                self.responseJson(200, json.dumps(response_data))
+                
+                # Schedule server shutdown in a separate thread to allow response to complete
+                import threading
+                def delayed_shutdown():
+                    import time
+                    time.sleep(1)  # Give time for response to be sent
+                    print("[SHUTDOWN] Stopping server...")
+                    self.server.shutdown()
+                
+                shutdown_thread = threading.Thread(target=delayed_shutdown, daemon=True)
+                shutdown_thread.start()
+                
+            except Exception as e:
+                print(f"[SHUTDOWN] Error during shutdown: {e}")
+                response_data = {"success": False, "error": str(e)}
+                self.responseJson(500, json.dumps(response_data))
 
         else:
             self.send_response(404)

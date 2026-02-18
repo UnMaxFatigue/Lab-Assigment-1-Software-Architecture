@@ -173,14 +173,52 @@ class SmartMoveClient:
                 
                 self.print_header("MY ACTIVE RENTALS")
                 for rental in rentals:
-                    status_icon = "[RESERVED]" if rental['status'] == "RESERVED" else "[ACTIVE]"
-                    print(f"\n  {status_icon} Vehicle ID: {rental['vehicleId']}")
-                    print(f"  Type: {rental['vehicleType'].upper()}")
-                    print(f"  Status: {rental['status']}")
+                    # Different icons based on status
+                    status = rental.get('status', 'UNKNOWN')
+                    if status == "RESERVED":
+                        status_icon = "[RESERVED]"
+                    elif status == "ACTIVE":
+                        status_icon = "[ACTIVE]"
+                    elif status == "CANCELLED":
+                        status_icon = "[CANCELLED]"
+                    else:
+                        status_icon = f"[{status}]"
+                    
+                    print(f"\n  {status_icon} Vehicle ID: {rental.get('vehicleId', 'N/A')}")
+                    print(f"  Type: {rental.get('vehicleType', 'unknown').upper()}")
+                    print(f"  Status: {status}")
+                    
+                    # Vehicle telemetry (may not always be available)
+                    if 'vehicleState' in rental:
+                        print(f"  Vehicle State: {rental['vehicleState']}")
+                    
+                    if 'batteryLevel' in rental:
+                        battery_level = rental['batteryLevel']
+                        battery_bar = "█" * (battery_level // 10)
+                        print(f"  Battery: [{battery_bar:<10}] {battery_level}%")
+                    
+                    if 'temperature' in rental:
+                        print(f"  Temperature: {rental['temperature']}°C")
+                    
+                    if rental.get('latitude') and rental.get('longitude'):
+                        print(f"  Location: {rental['latitude']:.4f}, {rental['longitude']:.4f}")
+                    
                     if rental.get('scheduledStartTime'):
                         print(f"  Scheduled start: {rental['scheduledStartTime']}")
                     if rental.get('actualStartTime'):
                         print(f"  Started on: {rental['actualStartTime']}")
+                    if rental.get('endTime'):
+                        print(f"  Ended on: {rental['endTime']}")
+                    if rental.get('cost'):
+                        print(f"  Cost: ${rental['cost']:.2f}")
+                    
+                    # Show warning if cancelled unexpectedly
+                    if status == "CANCELLED":
+                        vehicle_state = rental.get('vehicleState', '')
+                        if vehicle_state == "EMERGENCYLOCK":
+                            print(f"  [WARNING] Rental terminated due to emergency (battery/overheating/theft)")
+                        elif vehicle_state == "MAINTENANCE":
+                            print(f"  [WARNING] Vehicle sent to maintenance")
                 return True
             else:
                 print("\n[ERROR] Error retrieving rentals")
@@ -244,7 +282,9 @@ class SmartMoveClient:
             if response.status_code == 200:
                 print("\n[OK] Rental activated! Have a great ride!")
             elif response.status_code == 422:
-                print("\n[ERROR] Cannot activate this rental")
+                error_data = response.json()
+                error_msg = error_data.get("error", "Cannot activate this rental")
+                print(f"\n[ERROR] {error_msg}")
             else:
                 print("\n[ERROR] Error during activation")
         except ValueError:
@@ -337,7 +377,8 @@ class SmartMoveClient:
                 "Activate a rental",
                 "Return a vehicle",
                 "Cancel a reservation",
-                "View my active rentals"
+                "View my active rentals",
+                "Admin Mode (Vehicle Management)"
             ]
             self.print_menu(options)
             
@@ -360,8 +401,414 @@ class SmartMoveClient:
                 self.cancel_rental()
             elif choice == 6:
                 self.view_my_rentals()
+            elif choice == 7:
+                self.admin_menu()
+    
+    def view_all_vehicles(self) -> bool:
+        """Display all vehicles with their states. Returns True if vehicles exist."""
+        try:
+            response = requests.get(f"{self.base_url}/vehicles", timeout=5)
+            if response.status_code == 200:
+                vehicles = response.json()
+                if not vehicles:
+                    print("\nNo vehicles in the system")
+                    return False
+                
+                self.print_header("ALL VEHICLES")
+                for vehicle in vehicles:
+                    battery_bar = "█" * (vehicle['batteryLevel'] // 10)
+                    status_icon = {
+                        'AVAILABLE': '[AVAILABLE]',
+                        'RESERVED': '[RESERVED]',
+                        'INUSE': '[IN USE]',
+                        'MAINTENANCE': '[MAINTENANCE]',
+                        'EMERGENCYLOCK': '[LOCKED]',
+                        'RELOCATING': '[RELOCATING]'
+                    }.get(vehicle['state'], f"[{vehicle['state']}]")
+                    
+                    print(f"\n  {status_icon} ID: {vehicle['vehicleId']}")
+                    print(f"  Type: {vehicle['type'].upper()}")
+                    print(f"  State: {vehicle['state']}")
+                    print(f"  Battery: [{battery_bar:<10}] {vehicle['batteryLevel']}%")
+                    print(f"  Temperature: {vehicle['temperature']}°C")
+                    print(f"  Has Active Rental: {'Yes' if vehicle['hasActiveRental'] else 'No'}")
+                return True
+            else:
+                print("\n[ERROR] Error retrieving vehicles")
+                return False
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+            return False
+    
+    def view_vehicles_by_state(self, states: list, header: str) -> bool:
+        """Display vehicles filtered by state(s). Returns True if matching vehicles exist."""
+        try:
+            response = requests.get(f"{self.base_url}/vehicles", timeout=5)
+            if response.status_code == 200:
+                vehicles = response.json()
+                filtered = [v for v in vehicles if v['state'] in states]
+                
+                if not filtered:
+                    print(f"\nNo vehicles in state(s): {', '.join(states)}")
+                    return False
+                
+                self.print_header(header)
+                for vehicle in filtered:
+                    battery_bar = "█" * (vehicle['batteryLevel'] // 10)
+                    print(f"\n  ID: {vehicle['vehicleId']}")
+                    print(f"  Type: {vehicle['type'].upper()}")
+                    print(f"  State: {vehicle['state']}")
+                    print(f"  Battery: [{battery_bar:<10}] {vehicle['batteryLevel']}%")
+                    print(f"  Temperature: {vehicle['temperature']}°C")
+                    print(f"  Has Active Rental: {'Yes' if vehicle['hasActiveRental'] else 'No'}")
+                return True
+            else:
+                print("\n[ERROR] Error retrieving vehicles")
+                return False
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+            return False
+    
+    def assign_maintenance(self):
+        """Assign a vehicle to maintenance"""
+        if not self.view_vehicles_by_state(['AVAILABLE', 'EMERGENCYLOCK'], "VEHICLES ELIGIBLE FOR MAINTENANCE"):
+            return
+        
+        vehicle_id = input("\nEnter the vehicle ID to assign to maintenance (0 to cancel): ")
+        if vehicle_id == "0":
+            return
+        
+        try:
+            vehicle_id = int(vehicle_id)
+        except ValueError:
+            print("\n[ERROR] Invalid ID - must be a number")
+            return
             
-            input("\nPress Enter to continue...")
+        try:
+            response = requests.post(
+                f"{self.base_url}/assignMaintenance",
+                json={"vehicleId": vehicle_id},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print("\n[OK] Vehicle assigned to maintenance successfully!")
+            elif response.status_code == 422:
+                print("\n[ERROR] Cannot assign maintenance (vehicle must be AVAILABLE or EMERGENCYLOCK)")
+            else:
+                print("\n[ERROR] Error assigning maintenance")
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+    
+    def complete_maintenance(self):
+        """Complete maintenance on a vehicle"""
+        if not self.view_vehicles_by_state(['MAINTENANCE'], "VEHICLES IN MAINTENANCE"):
+            return
+        
+        vehicle_id = input("\nEnter the vehicle ID to complete maintenance (0 to cancel): ")
+        if vehicle_id == "0":
+            return
+        
+        try:
+            vehicle_id = int(vehicle_id)
+        except ValueError:
+            print("\n[ERROR] Invalid ID - must be a number")
+            return
+            
+        try:
+            response = requests.post(
+                f"{self.base_url}/completeMaintenance",
+                json={"vehicleId": vehicle_id},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print("\n[OK] Maintenance completed! Vehicle is now available.")
+            elif response.status_code == 422:
+                print("\n[ERROR] Cannot complete maintenance (vehicle must be in MAINTENANCE state with battery > 20%)")
+            else:
+                print("\n[ERROR] Error completing maintenance")
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+    
+    def unlock_vehicle(self):
+        """Unlock a vehicle from EMERGENCYLOCK state"""
+        if not self.view_vehicles_by_state(['EMERGENCYLOCK'], "EMERGENCY LOCKED VEHICLES"):
+            return
+        
+        vehicle_id = input("\nEnter the vehicle ID to unlock (0 to cancel): ")
+        if vehicle_id == "0":
+            return
+        
+        try:
+            vehicle_id = int(vehicle_id)
+        except ValueError:
+            print("\n[ERROR] Invalid ID - must be a number")
+            return
+            
+        try:
+            response = requests.post(
+                f"{self.base_url}/requestEmUnlock",
+                json={"vehicleId": vehicle_id},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print("\n[OK] Vehicle unlocked successfully!")
+            elif response.status_code == 422:
+                print("\n[ERROR] Cannot unlock vehicle (must be in EMERGENCYLOCK state with no active rental)")
+            else:
+                print("\n[ERROR] Error unlocking vehicle")
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+    
+    def simulate_theft(self):
+        """Simulate theft by moving an idle vehicle"""
+        if not self.view_all_vehicles():
+            return
+        
+        vehicle_id = input("\nEnter the vehicle ID to simulate theft (0 to cancel): ")
+        if vehicle_id == "0":
+            return
+        
+        try:
+            vehicle_id = int(vehicle_id)
+        except ValueError:
+            print("\n[ERROR] Invalid ID - must be a number")
+            return
+        
+        print("\n[INFO] Simulating theft: moving vehicle without active rental...")
+        
+        try:
+            # Simulate vehicle movement by updating GPS with a significant change
+            # This will trigger theft detection if vehicle has no active rental
+            response = requests.post(
+                f"{self.base_url}/update",
+                json={
+                    "vehicleId": vehicle_id,
+                    "latitude": 51.510,  # Moved location in London
+                    "longitude": -0.130
+                },
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print("\n[OK] Telemetry updated!")
+                print("[INFO] If vehicle had no active rental, it should now be in EMERGENCYLOCK")
+                input("\nPress Enter to view vehicle status...")
+                self.view_all_vehicles()
+            else:
+                print("\n[ERROR] Error updating telemetry")
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+    
+    def simulate_telemetry(self):
+        """Simulate various telemetry scenarios"""
+        if not self.view_all_vehicles():
+            return
+        
+        vehicle_id = input("\nEnter the vehicle ID (0 to cancel): ")
+        if vehicle_id == "0":
+            return
+        
+        try:
+            vehicle_id = int(vehicle_id)
+        except ValueError:
+            print("\n[ERROR] Invalid ID - must be a number")
+            return
+        
+        print("\n=== TELEMETRY SIMULATION ===")
+        print("1. Low battery (4%)")
+        print("2. Overheating (65°C)")
+        print("3. Custom values")
+        print("0. Cancel")
+        
+        choice = input("\nYour choice: ")
+        
+        telemetry = {"vehicleId": vehicle_id}
+        
+        if choice == "1":
+            telemetry["batteryLevel"] = 4
+            print("\n[INFO] Simulating critical battery (4%)...")
+        elif choice == "2":
+            telemetry["temperature"] = 65
+            print("\n[INFO] Simulating overheating (65°C)...")
+        elif choice == "3":
+            try:
+                battery = input("Battery level (0-100, Enter to skip): ")
+                if battery:
+                    telemetry["batteryLevel"] = int(battery)
+                
+                temp = input("Temperature (°C, Enter to skip): ")
+                if temp:
+                    telemetry["temperature"] = int(temp)
+                
+                lat = input("Latitude (Enter to skip): ")
+                if lat:
+                    telemetry["latitude"] = float(lat)
+                    lon = input("Longitude: ")
+                    telemetry["longitude"] = float(lon)
+            except ValueError:
+                print("\n[ERROR] Invalid input")
+                return
+        else:
+            return
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/update",
+                json=telemetry,
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print("\n[OK] Telemetry updated!")
+                print("[INFO] Check vehicle status for effects...")
+                input("\nPress Enter to view vehicle status...")
+                self.view_all_vehicles()
+            else:
+                print("\n[ERROR] Error updating telemetry")
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+    
+    def simulate_charging(self):
+        """Simulate charging a vehicle's battery"""
+        if not self.view_all_vehicles():
+            return
+        
+        vehicle_id = input("\nEnter the vehicle ID to charge (0 to cancel): ")
+        if vehicle_id == "0":
+            return
+        
+        try:
+            vehicle_id = int(vehicle_id)
+        except ValueError:
+            print("\n[ERROR] Invalid ID - must be a number")
+            return
+        
+        # Ask for target battery level
+        battery_input = input("\nTarget battery level (press Enter for 100%): ").strip()
+        if battery_input:
+            try:
+                battery_level = int(battery_input)
+                if battery_level < 0 or battery_level > 100:
+                    print("\n[ERROR] Battery level must be between 0 and 100")
+                    return
+            except ValueError:
+                print("\n[ERROR] Invalid battery level")
+                return
+        else:
+            battery_level = 100
+        
+        print(f"\n[INFO] Simulating charge to {battery_level}%...")
+        
+        try:
+            # Update battery level
+            response = requests.post(
+                f"{self.base_url}/update",
+                json={
+                    "vehicleId": vehicle_id,
+                    "batteryLevel": battery_level
+                },
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print(f"\n[OK] Battery updated to {battery_level}%!")
+                
+                # Check if vehicle is in maintenance and battery is sufficient
+                if battery_level > 20:
+                    complete = input("\nVehicle charged. Complete maintenance? (y/n): ").lower()
+                    if complete == 'y':
+                        maint_response = requests.post(
+                            f"{self.base_url}/completeMaintenance",
+                            json={"vehicleId": vehicle_id},
+                            timeout=5
+                        )
+                        if maint_response.status_code == 200:
+                            print("\n[OK] Maintenance completed! Vehicle is now available.")
+                        elif maint_response.status_code == 422:
+                            print("\n[INFO] Vehicle is not in maintenance state")
+                        else:
+                            print("\n[ERROR] Could not complete maintenance")
+                
+                input("\nPress Enter to view vehicle status...")
+                self.view_all_vehicles()
+            else:
+                print("\n[ERROR] Error updating battery")
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+    
+    def shutdown_server(self):
+        """Shutdown the server gracefully"""
+        print("\n[WARNING] This will stop the server and close all connections.")
+        confirm = input("Are you sure you want to shutdown the server? (yes/no): ").lower()
+        
+        if confirm != "yes":
+            print("\n[INFO] Shutdown cancelled.")
+            return
+        
+        try:
+            print("\n[INFO] Sending shutdown request to server...")
+            response = requests.post(
+                f"{self.base_url}/shutdown",
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                print("\n[OK] Server shutdown initiated successfully!")
+                print("[INFO] Data saved, monitoring stopped.")
+                print("[INFO] You can now close the CLI.")
+                input("\nPress Enter to exit...")
+                import sys
+                sys.exit(0)
+            else:
+                print("\n[ERROR] Error shutting down server")
+        except requests.exceptions.ConnectionError:
+            print("\n[INFO] Server has shut down (connection closed).")
+            input("\nPress Enter to exit...")
+            import sys
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+    
+    def admin_menu(self):
+        """Admin menu for vehicle management"""
+        while True:
+            self.print_header("ADMIN MODE - VEHICLE MANAGEMENT")
+            options = [
+                "View all vehicles",
+                "Assign vehicle to maintenance",
+                "Complete maintenance (battery charged)",
+                "Unlock vehicle (from EMERGENCYLOCK)",
+                "Simulate charging (update battery level)",
+                "Simulate theft (move idle vehicle)",
+                "Simulate telemetry (battery/temp/GPS)",
+                "Shutdown server (graceful exit)"
+            ]
+            self.print_menu(options)
+            
+            choice = self.get_choice(len(options))
+            
+            if choice == 0:
+                break
+            elif choice == 1:
+                self.view_all_vehicles()
+            elif choice == 2:
+                self.assign_maintenance()
+            elif choice == 3:
+                self.complete_maintenance()
+            elif choice == 4:
+                self.unlock_vehicle()
+            elif choice == 5:
+                self.simulate_charging()
+            elif choice == 6:
+                self.simulate_theft()
+            elif choice == 7:
+                self.simulate_telemetry()
+            elif choice == 8:
+                self.shutdown_server()
+                return  # Exit admin menu after shutdown
     
     def run(self):
         """Launch the CLI application"""

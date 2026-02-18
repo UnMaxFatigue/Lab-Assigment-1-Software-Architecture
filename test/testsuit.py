@@ -31,7 +31,9 @@ def testSuite(controller: SmartMoveCentralController) -> None:
     
     # Test 2: Activate the rental
     print("\n[TEST 2] Activating the rental...")
-    controller.activateRental(rental2)
+    success, error_msg = controller.activateRental(rental2)
+    if not success:
+        print(f"Activation failed: {error_msg}")
     print(f"Rental activated - Status: {rental2.status.value}")
     print(f"  Vehicle State: {rental2.vehicule.state.value}")
     print(f"  Has Active Rental: {rental2.vehicule.hasActiveRental}")
@@ -68,7 +70,7 @@ def testSuite(controller: SmartMoveCentralController) -> None:
     print("\n  Testing London Regulation:")
     controller.regulations = LondonRegulation()
     rental_london = controller.rentVehicule(scooter1, user1, datetime.now())
-    controller.activateRental(rental_london)
+    controller.activateRental(rental_london)[0]
     time.sleep(1)
     controller.returnVehicule(rental_london)
     print(f"    Duration: {rental_london.calculateRentalDuration():.2f} min, Cost: €{rental_london.cost:.2f}")
@@ -79,7 +81,7 @@ def testSuite(controller: SmartMoveCentralController) -> None:
     bike2 = Bike(vehiculeId=3, batteryLevel=90, temperature=25, state=State.AVAILABLE)
     controller.vehicules.append(bike2)
     rental_rome = controller.rentVehicule(bike2, user1, datetime.now())
-    controller.activateRental(rental_rome)
+    controller.activateRental(rental_rome)[0]
     time.sleep(1)
     controller.returnVehicule(rental_rome)
     print(f"    Duration: {rental_rome.calculateRentalDuration():.2f} min, Cost: €{rental_rome.cost:.2f}")

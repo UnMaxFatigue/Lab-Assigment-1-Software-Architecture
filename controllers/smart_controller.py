@@ -39,8 +39,46 @@ class SmartMoveCentralController:
         """Load all data from repositories at startup."""
         with self._lock:
             self.vehicules, self.users, self.rentals = self.persistenceManager.loadAll()
+            
+            # Fix rental references: associate with actual vehicles and users
+            for rental in self.rentals:
+                # Find the actual vehicle by ID
+                actual_vehicle = None
+                for vehicle in self.vehicules:
+                    if vehicle.vehiculeId == rental.vehicule.vehiculeId:
+                        actual_vehicle = vehicle
+                        break
+                
+                if actual_vehicle:
+                    rental.vehicule = actual_vehicle
+                else:
+                    print(f"[WARNING] Rental references non-existent vehicle ID: {rental.vehicule.vehiculeId}")
+                
+                # Find the actual user by name
+                actual_user = self.findUserByName(rental.user.name)
+                if actual_user:
+                    rental.user = actual_user
+                else:
+                    print(f"[WARNING] Rental references non-existent user: {rental.user.name}")
+            
+            # Synchronize vehicle states with active rentals
+            for rental in self.rentals:
+                if rental.status == RentalStatus.RESERVED:
+                    rental.vehicule.state = State.RESERVED
+                    rental.vehicule.hasActiveRental = True
+                elif rental.status == RentalStatus.ACTIVE:
+                    rental.vehicule.state = State.INUSE
+                    rental.vehicule.hasActiveRental = True
+            
             if self.auditLogger:
                 self.auditLogger.logEvent("DATA_LOADED")
+    
+    def findUserByName(self, name: str) -> Optional[User]:
+        """Find user by username (case-sensitive)."""
+        for user in self.users:
+            if user.name == name:
+                return user
+        return None
     
     def saveData(self) -> bool:
         """Save all data to repositories with automatic rollback."""
@@ -94,41 +132,64 @@ class SmartMoveCentralController:
             
             return rental
 
-    def activateRental(self, rental: Rental) -> bool:
-        """Activate a rental and mark vehicule as in use."""
+    def activateRental(self, rental: Rental) -> tuple[bool, Optional[str]]:
+        """Activate a rental and mark vehicule as in use. Returns (success, error_message)."""
         with self._lock:
             # Validate rental is in RESERVED state
             if rental.status != RentalStatus.RESERVED:
-                print(f"Cannot activate rental: Rental status is {rental.status.value}, expected RESERVED")
+                error_msg = f"Rental status is {rental.status.value}, expected RESERVED"
+                print(f"Cannot activate rental: {error_msg}")
                 if self.auditLogger:
                     self.auditLogger.logEvent("ACTIVATION_REJECTED_STATUS")
-                return False
+                return False, error_msg
             
             # Validate vehicle state
             if rental.vehicule.state not in [State.AVAILABLE, State.RESERVED]:
-                print(f"Cannot activate rental: Vehicle is {rental.vehicule.state.value}")
+                error_msg = f"Vehicle is {rental.vehicule.state.value}"
+                print(f"Cannot activate rental: {error_msg}")
                 if self.auditLogger:
                     self.auditLogger.logEvent("ACTIVATION_REJECTED_STATE")
-                return False
+                return False, error_msg
 
             # Pre-trip regulation checks (unlock constraints)
             if self.regulations:
-                for regulation in self.regulations:
+                # Filter regulations by jurisdiction based on vehicle location
+                applicable_regulations = []
+                vehicle_location = rental.vehicule.lastKnownLocation
+                
+                if vehicle_location:
+                    for regulation in self.regulations:
+                        if regulation.isInJurisdiction(vehicle_location):
+                            applicable_regulations.append(regulation)
+                else:
+                    # If no location data, apply all regulations (fail-safe)
+                    applicable_regulations = self.regulations
+                
+                for regulation in applicable_regulations:
                     if not regulation.applyPreTripRegulation(rental.vehicule, rental):
-                        print("Cannot activate rental: Pre-trip regulation check failed")
+                        error_msg = "Pre-trip regulation check failed (helmet missing)"
+                        print(f"Cannot activate rental: {error_msg}")
+                        # Cancel rental and release vehicle
                         rental.status = RentalStatus.CANCELLED
+                        rental.vehicule.changeState(State.AVAILABLE)
+                        rental.vehicule.hasActiveRental = False
+                        self.persistenceManager.saveAll(self.vehicules, self.users, self.rentals)
                         if self.auditLogger:
                             self.auditLogger.logEvent("ACTIVATION_REJECTED_REGULATION")
-                        return False
+                        return False, error_msg
             
             # Validate telemetry before activation
             if not rental.vehicule.telemetryData.isHealthy():
-                print(f"Cannot activate rental: Vehicle telemetry is unhealthy")
-                print(f"Battery: {rental.vehicule.telemetryData.batteryLevel}%, Temperature: {rental.vehicule.telemetryData.temperature}°C")
+                error_msg = f"Vehicle telemetry is unhealthy (Battery: {rental.vehicule.telemetryData.batteryLevel}%, Temperature: {rental.vehicule.telemetryData.temperature}°C)"
+                print(f"Cannot activate rental: {error_msg}")
+                # Cancel rental and release vehicle
                 rental.status = RentalStatus.CANCELLED
+                rental.vehicule.changeState(State.AVAILABLE)
+                rental.vehicule.hasActiveRental = False
+                self.persistenceManager.saveAll(self.vehicules, self.users, self.rentals)
                 if self.auditLogger:
                     self.auditLogger.logEvent("ACTIVATION_REJECTED_TELEMETRY")
-                return False
+                return False, error_msg
             
             # Change rental status to ACTIVE, set actualStartTime
             rental.status = RentalStatus.ACTIVE
@@ -145,6 +206,8 @@ class SmartMoveCentralController:
             success, (v, u, r) = self.persistenceManager.saveAll(self.vehicules, self.users, self.rentals)
             if not success:
                 self.vehicules, self.users, self.rentals = v, u, r
+            
+            return True, None
             
             return True
 
@@ -216,7 +279,14 @@ class SmartMoveCentralController:
                     
                     # Apply city-specific post-trip regulations
                     if self.regulations:
-                        for regulation in self.regulations:
+                        # Filter regulations by jurisdiction
+                        vehicle_location = rental.vehicule.lastKnownLocation
+                        if vehicle_location:
+                            applicable_regulations = [r for r in self.regulations if r.isInJurisdiction(vehicle_location)]
+                        else:
+                            applicable_regulations = self.regulations
+                        
+                        for regulation in applicable_regulations:
                             regulation.applyPostTripRegulation(rental.vehicule, rental)
                     
                     # Change vehicle state to available
@@ -275,6 +345,13 @@ class SmartMoveCentralController:
                 if active_rental:
                     self.slowDownVehicle(vehicule, "battery critically low")
                     self._returnVehiculeNoLock(active_rental, emergency=True, reason="Battery critically low")
+                    # Force vehicle to MAINTENANCE for recharging (not EMERGENCYLOCK)
+                    vehicule.changeState(State.MAINTENANCE)
+                    if self.auditLogger:
+                        self.auditLogger.logEvent(f"MAINTENANCE_BATTERY_LOW: Vehicle {vehicule.vehiculeId}")
+                    success, (v, u, r) = self.persistenceManager.saveAll(self.vehicules, self.users, self.rentals)
+                    if not success:
+                        self.vehicules, self.users, self.rentals = v, u, r
                     return
                 if vehicule.state != State.MAINTENANCE:
                     print(f"Vehicle {vehicule.vehiculeId} became battery low, so schedule maintenance.")
@@ -290,7 +367,14 @@ class SmartMoveCentralController:
                 vehicule.lastKnownLocation = newTelemetryData.location
 
             if self.regulations:
-                for regulation in self.regulations:
+                # Filter regulations by jurisdiction
+                vehicle_location = vehicule.lastKnownLocation
+                if vehicle_location:
+                    applicable_regulations = [r for r in self.regulations if r.isInJurisdiction(vehicle_location)]
+                else:
+                    applicable_regulations = self.regulations
+                
+                for regulation in applicable_regulations:
                     regulation.applyInTripRegulation(vehicule, active_rental)
             
             # THEFT DETECTION: Check if vehicle moved without active rental
@@ -342,7 +426,14 @@ class SmartMoveCentralController:
                 rental.status = RentalStatus.COMPLETED
                 rental.calculateRentalCost()
                 if self.regulations:
-                    for regulation in self.regulations:
+                    # Filter regulations by jurisdiction
+                    vehicle_location = rental.vehicule.lastKnownLocation
+                    if vehicle_location:
+                        applicable_regulations = [r for r in self.regulations if r.isInJurisdiction(vehicle_location)]
+                    else:
+                        applicable_regulations = self.regulations
+                    
+                    for regulation in applicable_regulations:
                         regulation.applyPostTripRegulation(rental.vehicule, rental)
                 rental.vehicule.changeState(State.AVAILABLE)
                 rental.vehicule.hasActiveRental = False
@@ -600,7 +691,7 @@ class SmartMoveCentralController:
                 for vehicle in vehicles_snapshot:
                     if vehicle.state == State.INUSE and vehicle.hasActiveRental:
                         # Simulate realistic telemetry updates
-                        battery_drift = random.randint(-2, 1)  # Battery usually decreases
+                        battery_drift = random.randint(-3, -1)  # Battery always decreases during use
                         temp_drift = random.randint(-3, 3)
                         
                         new_battery = max(0, min(100, vehicle.telemetryData.batteryLevel + battery_drift))
@@ -620,6 +711,26 @@ class SmartMoveCentralController:
                         # Create and process new telemetry
                         new_telemetry = TelemetryData(new_battery, new_temp, new_location)
                         self.processTelemetryData(vehicle, new_telemetry)
+                    
+                    # Also check AVAILABLE vehicles for maintenance needs (critical battery/overheating)
+                    elif vehicle.state == State.AVAILABLE:
+                        # Check if battery is critically low or overheating
+                        if vehicle.telemetryData.batteryLevel <= 5:
+                            # Trigger maintenance for battery critical
+                            dummy_telemetry = TelemetryData(
+                                vehicle.telemetryData.batteryLevel,
+                                vehicle.telemetryData.temperature,
+                                vehicle.lastKnownLocation
+                            )
+                            self.processTelemetryData(vehicle, dummy_telemetry)
+                        elif vehicle.telemetryData.temperature >= 60:
+                            # Trigger emergency lock for overheating
+                            dummy_telemetry = TelemetryData(
+                                vehicle.telemetryData.batteryLevel,
+                                vehicle.telemetryData.temperature,
+                                vehicle.lastKnownLocation
+                            )
+                            self.processTelemetryData(vehicle, dummy_telemetry)
                         
             except Exception as e:
                 print(f"Background monitoring error: {e}")

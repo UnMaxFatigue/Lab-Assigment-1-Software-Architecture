@@ -49,12 +49,16 @@ def main() -> None:
 
     try:
         print("Server started on port 8080")
+        print("Press Ctrl+C to stop, or use CLI admin menu to shutdown gracefully")
         httpServer.serve_forever()
     except KeyboardInterrupt:
-        print("Interrupt recived. Closing down.")
+        print("\n[SHUTDOWN] Interrupt received. Closing down...")
     finally:
+        print("[SHUTDOWN] Stopping background monitoring...")
         controller.stopBackgroundMonitoring()
-        httpServer.shutdown()
+        print("[SHUTDOWN] Saving data...")
+        controller.saveData()
+        print("[SHUTDOWN] Server stopped.")
     #testsuit(controller)
     
 

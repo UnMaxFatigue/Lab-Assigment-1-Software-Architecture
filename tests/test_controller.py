@@ -87,8 +87,9 @@ class TestSmartMoveCentralController(unittest.TestCase):
     def test_activate_rental_success(self):
         """Test successful rental activation."""
         rental = self.controller.rentVehicule(self.test_bike, self.test_user, datetime.now())
-        result = self.controller.activateRental(rental)
+        result, error_msg = self.controller.activateRental(rental)
         self.assertTrue(result)
+        self.assertIsNone(error_msg)
         self.assertEqual(rental.status, RentalStatus.ACTIVE)
         self.assertEqual(self.test_bike.state, State.INUSE)
         self.assertIsNotNone(rental.actualStartTime)
@@ -97,13 +98,14 @@ class TestSmartMoveCentralController(unittest.TestCase):
         """Test activating rental in wrong status fails."""
         rental = Rental(self.test_user, self.test_bike, datetime.now())
         rental.status = RentalStatus.COMPLETED
-        result = self.controller.activateRental(rental)
+        result, error_msg = self.controller.activateRental(rental)
         self.assertFalse(result)
+        self.assertIsNotNone(error_msg)
     
     def test_return_vehicle_success(self):
         """Test successful vehicle return."""
         rental = self.controller.rentVehicule(self.test_bike, self.test_user, datetime.now())
-        self.controller.activateRental(rental)
+        self.controller.activateRental(rental)[0]
         result = self.controller.returnVehicule(rental)
         self.assertTrue(result)
         self.assertEqual(rental.status, RentalStatus.COMPLETED)
@@ -114,7 +116,7 @@ class TestSmartMoveCentralController(unittest.TestCase):
     def test_return_vehicle_emergency(self):
         """Test emergency vehicle return."""
         rental = self.controller.rentVehicule(self.test_bike, self.test_user, datetime.now())
-        self.controller.activateRental(rental)
+        self.controller.activateRental(rental)[0]
         result = self.controller.returnVehicule(rental, emergency=True, reason="Test emergency")
         self.assertTrue(result)
         self.assertEqual(rental.status, RentalStatus.CANCELLED)
@@ -124,7 +126,7 @@ class TestSmartMoveCentralController(unittest.TestCase):
     def test_telemetry_overheating(self):
         """Test telemetry detects overheating."""
         rental = self.controller.rentVehicule(self.test_bike, self.test_user, datetime.now())
-        self.controller.activateRental(rental)
+        self.controller.activateRental(rental)[0]
         
         telemetry = TelemetryData(80, 65)  # Overheating
         self.controller.processTelemetryData(self.test_bike, telemetry)
@@ -135,7 +137,7 @@ class TestSmartMoveCentralController(unittest.TestCase):
     def test_telemetry_battery_critical(self):
         """Test telemetry detects critical battery."""
         rental = self.controller.rentVehicule(self.test_bike, self.test_user, datetime.now())
-        self.controller.activateRental(rental)
+        self.controller.activateRental(rental)[0]
         
         telemetry = TelemetryData(3, 25)  # Critical battery
         self.controller.processTelemetryData(self.test_bike, telemetry)
@@ -249,7 +251,7 @@ class TestSmartMoveCentralController(unittest.TestCase):
     def test_find_active_rental(self):
         """Test finding active rental."""
         rental = self.controller.rentVehicule(self.test_bike, self.test_user, datetime.now())
-        self.controller.activateRental(rental)
+        self.controller.activateRental(rental)[0]
         found_rental = self.controller.findActiveRental(self.test_bike)
         self.assertIsNotNone(found_rental)
         self.assertEqual(found_rental.vehicule.vehiculeId, 1)

@@ -1,5 +1,5 @@
 from typing import Optional
-from models import Vehicule
+from models import Vehicule, GPSLocation
 from models import Rental
 from models import State
 from vehicules import Scooter
@@ -14,6 +14,11 @@ RESTRICTED_ZONES = [
 
 
 class RomeRegulation(Regulation):
+    def isInJurisdiction(self, location: GPSLocation) -> bool:
+        """Check if location is in Rome (approximately 41.7-42.0°N, 12.3-12.7°E)."""
+        return (41.7 <= location.latitude <= 42.0 and 
+                12.3 <= location.longitude <= 12.7)
+    
     def applyPreTripRegulation(self, vehicule: Vehicule, rental: Rental) -> bool:
         return True
 
