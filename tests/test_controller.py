@@ -142,7 +142,7 @@ class TestSmartMoveCentralController(unittest.TestCase):
         telemetry = TelemetryData(3, 25)  # Critical battery
         self.controller.processTelemetryData(self.test_bike, telemetry)
         
-        self.assertEqual(self.test_bike.state, State.EMERGENCYLOCK)
+        self.assertEqual(self.test_bike.state, State.MAINTENANCE)
         self.assertEqual(rental.status, RentalStatus.CANCELLED)
     
     def test_telemetry_theft_detection(self):

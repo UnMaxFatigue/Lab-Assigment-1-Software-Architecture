@@ -1,4 +1,4 @@
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Tuple
 from models import Vehicule, Rental, User, GPSLocation, TelemetryData
 from regulations import Regulation
 from services import PersistenceManager, AuditLogger
@@ -132,7 +132,7 @@ class SmartMoveCentralController:
             
             return rental
 
-    def activateRental(self, rental: Rental) -> tuple[bool, Optional[str]]:
+    def activateRental(self, rental: Rental) -> Tuple[bool, Optional[str]]:
         """Activate a rental and mark vehicule as in use. Returns (success, error_message)."""
         with self._lock:
             # Validate rental is in RESERVED state
