@@ -1,11 +1,18 @@
 import requests
 import json
 import time
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# ===== LOAD .env FROM ROOT =====
+root_path = Path(__file__).parent.parent
+load_dotenv(dotenv_path=root_path / ".env")
 
 # ===== SETTINGS =====
 PROJECT_KEY = "smartmove"        # same as sonar.projectKey
 PROJECT_NAME = "SmartMove"
-SONAR_TOKEN = "squ_1437c407bdadbdf325ece300006670b3e03cb1cd"
+SONAR_TOKEN = os.getenv("SONAR_TOKEN")   # <-- read from .env instead of hardcoding
 
 def save_local_report():
     metrics = "bugs,vulnerabilities,code_smells,coverage,duplicated_lines_density"

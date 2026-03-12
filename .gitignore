@@ -22,11 +22,7 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
-venv/
-env/
-ENV/
-.venv
+git branch
 
 # IDE
 .vscode/
@@ -50,3 +46,11 @@ htmlcov/
 # Data files
 data/
 *.csv
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# coverage reports
+coverage.xml
