@@ -2,7 +2,6 @@
 SmartMove CLI Client - Text interface to interact with the server
 """
 import requests
-import json
 import getpass
 from typing import Optional
 
@@ -23,6 +22,31 @@ class SmartMoveClient:
         for i, option in enumerate(options, 1):
             print(f"  {i}. {option}")
         print(f"  0. Back/Quit")
+
+    def _request(self, method: str, path: str, json_data: Optional[dict] = None) -> Optional[requests.Response]:
+        """Send an HTTP request and handle common errors."""
+        url = f"{self.base_url}{path}"
+        try:
+            if method == "GET":
+                return requests.get(url, timeout=5)
+            if method == "POST":
+                return requests.post(url, json=json_data, timeout=5)
+            print(f"[ERROR] Unsupported HTTP method: {method}")
+            return None
+        except requests.exceptions.ConnectionError:
+            print("\n[ERROR] Cannot connect to server. Is it running?")
+            return None
+        except Exception as e:
+            print(f"\n[ERROR] Error: {e}")
+            return None
+
+    def _post(self, path: str, json_data: Optional[dict] = None) -> Optional[requests.Response]:
+        """Convenience wrapper for POST requests."""
+        return self._request("POST", path, json_data=json_data)
+
+    def _get(self, path: str) -> Optional[requests.Response]:
+        """Convenience wrapper for GET requests."""
+        return self._request("GET", path)
     
     def get_choice(self, max_option: int) -> int:
         """Get the user's choice"""
@@ -59,32 +83,21 @@ class SmartMoveClient:
             return False
         
         password = getpass.getpass("Enter your password: ")
-        
-        try:
-            response = requests.post(
-                f"{self.base_url}/login",
-                json={"username": username, "password": password},
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                user_data = response.json()
-                self.current_user = user_data['userId']
-                self.current_username = user_data['username']
-                print(f"\n[OK] Logged in as {self.current_username}")
-                return True
-            elif response.status_code == 401:
-                print("\n[ERROR] Invalid username or password")
-                return False
-            else:
-                print("\n[ERROR] Error during login")
-                return False
-        except requests.exceptions.ConnectionError:
-            print("\n[ERROR] Cannot connect to server. Is it running?")
+
+        response = self._post("/login", {"username": username, "password": password})
+        if not response:
             return False
-        except Exception as e:
-            print(f"\n[ERROR] Error: {e}")
+        if response.status_code == 200:
+            user_data = response.json()
+            self.current_user = user_data['userId']
+            self.current_username = user_data['username']
+            print(f"\n[OK] Logged in as {self.current_username}")
+            return True
+        if response.status_code == 401:
+            print("\n[ERROR] Invalid username or password")
             return False
+        print("\n[ERROR] Error during login")
+        return False
     
     def create_account(self) -> bool:
         """Create a new account"""
@@ -102,45 +115,34 @@ class SmartMoveClient:
         if password != password_confirm:
             print("[ERROR] Passwords do not match")
             return False
-        
-        try:
-            response = requests.post(
-                f"{self.base_url}/registerUser",
-                json={"username": username, "password": password},
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                print(f"\n[OK] Account created successfully!")
-                # Now login with the new credentials
-                login_response = requests.post(
-                    f"{self.base_url}/login",
-                    json={"username": username, "password": password},
-                    timeout=5
-                )
-                if login_response.status_code == 200:
-                    user_data = login_response.json()
-                    self.current_user = user_data['userId']
-                    self.current_username = username
-                    print(f"[OK] Logged in as {self.current_username}")
-                    return True
-                else:
-                    print("[WARNING] Account created. Please login manually.")
-                    return False
-            elif response.status_code == 422:
-                print(f"\n[ERROR] This username already exists")
-                return False
-            else:
-                print(f"\n[ERROR] Error creating account")
-                return False
-        except Exception as e:
-            print(f"\n[ERROR] Error: {e}")
+
+        response = self._post("/registerUser", {"username": username, "password": password})
+        if not response:
             return False
+        if response.status_code == 200:
+            print(f"\n[OK] Account created successfully!")
+            # Now login with the new credentials
+            login_response = self._post("/login", {"username": username, "password": password})
+            if login_response and login_response.status_code == 200:
+                user_data = login_response.json()
+                self.current_user = user_data['userId']
+                self.current_username = username
+                print(f"[OK] Logged in as {self.current_username}")
+                return True
+            print("[WARNING] Account created. Please login manually.")
+            return False
+        if response.status_code == 422:
+            print(f"\n[ERROR] This username already exists")
+            return False
+        print(f"\n[ERROR] Error creating account")
+        return False
     
     def view_available_vehicles(self) -> bool:
         """Display available vehicles. Returns True if vehicles are available."""
         try:
-            response = requests.get(f"{self.base_url}/vehicles/available", timeout=5)
+            response = self._get("/vehicles/available")
+            if not response:
+                return False
             if response.status_code == 200:
                 vehicles = response.json()
                 if not vehicles:
@@ -164,7 +166,9 @@ class SmartMoveClient:
     def view_my_rentals(self) -> bool:
         """Display my active rentals. Returns True if rentals exist."""
         try:
-            response = requests.get(f"{self.base_url}/rentals/{self.current_username}", timeout=5)
+            response = self._get(f"/rentals/{self.current_username}")
+            if not response:
+                return False
             if response.status_code == 200:
                 rentals = response.json()
                 if not rentals:
@@ -238,15 +242,9 @@ class SmartMoveClient:
         
         try:
             vehicle_id = int(vehicle_id)
-            response = requests.post(
-                f"{self.base_url}/reserveVehicle",
-                json={
-                    "userId": self.current_user,
-                    "vehicleId": vehicle_id
-                },
-                timeout=5
-            )
-            
+            response = self._post("/reserveVehicle", {"userId": self.current_user, "vehicleId": vehicle_id})
+            if not response:
+                return
             if response.status_code == 200:
                 print("\n[OK] Vehicle reserved successfully!")
                 print("[INFO] Don't forget to activate the rental before leaving")
@@ -270,15 +268,9 @@ class SmartMoveClient:
         
         try:
             vehicle_id = int(vehicle_id)
-            response = requests.post(
-                f"{self.base_url}/activateVehicle",
-                json={
-                    "username": self.current_username,
-                    "vehicleId": vehicle_id
-                },
-                timeout=5
-            )
-            
+            response = self._post("/activateVehicle", {"username": self.current_username, "vehicleId": vehicle_id})
+            if not response:
+                return
             if response.status_code == 200:
                 print("\n[OK] Rental activated! Have a great ride!")
             elif response.status_code == 422:
@@ -308,15 +300,9 @@ class SmartMoveClient:
             return
             
         try:
-            response = requests.post(
-                f"{self.base_url}/returnVehicle",
-                json={
-                    "username": self.current_username,
-                    "vehicleId": vehicle_id
-                },
-                timeout=5
-            )
-            
+            response = self._post("/returnVehicle", {"username": self.current_username, "vehicleId": vehicle_id})
+            if not response:
+                return
             if response.status_code == 200:
                 try:
                     data = response.json()
@@ -347,15 +333,9 @@ class SmartMoveClient:
         
         try:
             vehicle_id = int(vehicle_id)
-            response = requests.post(
-                f"{self.base_url}/cancelRental",
-                json={
-                    "username": self.current_username,
-                    "vehicleId": vehicle_id
-                },
-                timeout=5
-            )
-            
+            response = self._post("/cancelRental", {"username": self.current_username, "vehicleId": vehicle_id})
+            if not response:
+                return
             if response.status_code == 200:
                 print("\n[OK] Reservation cancelled successfully!")
             elif response.status_code == 422:
@@ -407,7 +387,9 @@ class SmartMoveClient:
     def view_all_vehicles(self) -> bool:
         """Display all vehicles with their states. Returns True if vehicles exist."""
         try:
-            response = requests.get(f"{self.base_url}/vehicles", timeout=5)
+            response = self._get("/vehicles")
+            if not response:
+                return False
             if response.status_code == 200:
                 vehicles = response.json()
                 if not vehicles:
@@ -443,7 +425,9 @@ class SmartMoveClient:
     def view_vehicles_by_state(self, states: list, header: str) -> bool:
         """Display vehicles filtered by state(s). Returns True if matching vehicles exist."""
         try:
-            response = requests.get(f"{self.base_url}/vehicles", timeout=5)
+            response = self._get("/vehicles")
+            if not response:
+                return False
             if response.status_code == 200:
                 vehicles = response.json()
                 filtered = [v for v in vehicles if v['state'] in states]
@@ -485,12 +469,9 @@ class SmartMoveClient:
             return
             
         try:
-            response = requests.post(
-                f"{self.base_url}/assignMaintenance",
-                json={"vehicleId": vehicle_id},
-                timeout=5
-            )
-            
+            response = self._post("/assignMaintenance", {"vehicleId": vehicle_id})
+            if not response:
+                return
             if response.status_code == 200:
                 print("\n[OK] Vehicle assigned to maintenance successfully!")
             elif response.status_code == 422:
@@ -516,12 +497,9 @@ class SmartMoveClient:
             return
             
         try:
-            response = requests.post(
-                f"{self.base_url}/completeMaintenance",
-                json={"vehicleId": vehicle_id},
-                timeout=5
-            )
-            
+            response = self._post("/completeMaintenance", {"vehicleId": vehicle_id})
+            if not response:
+                return
             if response.status_code == 200:
                 print("\n[OK] Maintenance completed! Vehicle is now available.")
             elif response.status_code == 422:
@@ -547,12 +525,9 @@ class SmartMoveClient:
             return
             
         try:
-            response = requests.post(
-                f"{self.base_url}/requestEmUnlock",
-                json={"vehicleId": vehicle_id},
-                timeout=5
-            )
-            
+            response = self._post("/requestEmUnlock", {"vehicleId": vehicle_id})
+            if not response:
+                return
             if response.status_code == 200:
                 print("\n[OK] Vehicle unlocked successfully!")
             elif response.status_code == 422:
@@ -579,28 +554,18 @@ class SmartMoveClient:
         
         print("\n[INFO] Simulating theft: moving vehicle without active rental...")
         
-        try:
-            # Simulate vehicle movement by updating GPS with a significant change
-            # This will trigger theft detection if vehicle has no active rental
-            response = requests.post(
-                f"{self.base_url}/update",
-                json={
-                    "vehicleId": vehicle_id,
-                    "latitude": 51.510,  # Moved location in London
-                    "longitude": -0.130
-                },
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                print("\n[OK] Telemetry updated!")
-                print("[INFO] If vehicle had no active rental, it should now be in EMERGENCYLOCK")
-                input("\nPress Enter to view vehicle status...")
-                self.view_all_vehicles()
-            else:
-                print("\n[ERROR] Error updating telemetry")
-        except Exception as e:
-            print(f"\n[ERROR] Error: {e}")
+        # Simulate vehicle movement by updating GPS with a significant change
+        # This will trigger theft detection if vehicle has no active rental
+        response = self._post("/update", {"vehicleId": vehicle_id, "latitude": 51.510, "longitude": -0.130})
+        if not response:
+            return
+        if response.status_code == 200:
+            print("\n[OK] Telemetry updated!")
+            print("[INFO] If vehicle had no active rental, it should now be in EMERGENCYLOCK")
+            input("\nPress Enter to view vehicle status...")
+            self.view_all_vehicles()
+        else:
+            print("\n[ERROR] Error updating telemetry")
     
     def simulate_telemetry(self):
         """Simulate various telemetry scenarios"""
@@ -654,22 +619,16 @@ class SmartMoveClient:
         else:
             return
         
-        try:
-            response = requests.post(
-                f"{self.base_url}/update",
-                json=telemetry,
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                print("\n[OK] Telemetry updated!")
-                print("[INFO] Check vehicle status for effects...")
-                input("\nPress Enter to view vehicle status...")
-                self.view_all_vehicles()
-            else:
-                print("\n[ERROR] Error updating telemetry")
-        except Exception as e:
-            print(f"\n[ERROR] Error: {e}")
+        response = self._post("/update", telemetry)
+        if not response:
+            return
+        if response.status_code == 200:
+            print("\n[OK] Telemetry updated!")
+            print("[INFO] Check vehicle status for effects...")
+            input("\nPress Enter to view vehicle status...")
+            self.view_all_vehicles()
+        else:
+            print("\n[ERROR] Error updating telemetry")
     
     def simulate_charging(self):
         """Simulate charging a vehicle's battery"""
@@ -702,42 +661,28 @@ class SmartMoveClient:
         
         print(f"\n[INFO] Simulating charge to {battery_level}%...")
         
-        try:
-            # Update battery level
-            response = requests.post(
-                f"{self.base_url}/update",
-                json={
-                    "vehicleId": vehicle_id,
-                    "batteryLevel": battery_level
-                },
-                timeout=5
-            )
+        response = self._post("/update", {"vehicleId": vehicle_id, "batteryLevel": battery_level})
+        if not response:
+            return
+        if response.status_code == 200:
+            print(f"\n[OK] Battery updated to {battery_level}%!")
             
-            if response.status_code == 200:
-                print(f"\n[OK] Battery updated to {battery_level}%!")
-                
-                # Check if vehicle is in maintenance and battery is sufficient
-                if battery_level > 20:
-                    complete = input("\nVehicle charged. Complete maintenance? (y/n): ").lower()
-                    if complete == 'y':
-                        maint_response = requests.post(
-                            f"{self.base_url}/completeMaintenance",
-                            json={"vehicleId": vehicle_id},
-                            timeout=5
-                        )
-                        if maint_response.status_code == 200:
-                            print("\n[OK] Maintenance completed! Vehicle is now available.")
-                        elif maint_response.status_code == 422:
-                            print("\n[INFO] Vehicle is not in maintenance state")
-                        else:
-                            print("\n[ERROR] Could not complete maintenance")
-                
-                input("\nPress Enter to view vehicle status...")
-                self.view_all_vehicles()
-            else:
-                print("\n[ERROR] Error updating battery")
-        except Exception as e:
-            print(f"\n[ERROR] Error: {e}")
+            # Check if vehicle is in maintenance and battery is sufficient
+            if battery_level > 20:
+                complete = input("\nVehicle charged. Complete maintenance? (y/n): ").lower()
+                if complete == 'y':
+                    maint_response = self._post("/completeMaintenance", {"vehicleId": vehicle_id})
+                    if maint_response and maint_response.status_code == 200:
+                        print("\n[OK] Maintenance completed! Vehicle is now available.")
+                    elif maint_response and maint_response.status_code == 422:
+                        print("\n[INFO] Vehicle is not in maintenance state")
+                    else:
+                        print("\n[ERROR] Could not complete maintenance")
+            
+            input("\nPress Enter to view vehicle status...")
+            self.view_all_vehicles()
+        else:
+            print("\n[ERROR] Error updating battery")
     
     def shutdown_server(self):
         """Shutdown the server gracefully"""
@@ -748,29 +693,22 @@ class SmartMoveClient:
             print("\n[INFO] Shutdown cancelled.")
             return
         
-        try:
-            print("\n[INFO] Sending shutdown request to server...")
-            response = requests.post(
-                f"{self.base_url}/shutdown",
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                print("\n[OK] Server shutdown initiated successfully!")
-                print("[INFO] Data saved, monitoring stopped.")
-                print("[INFO] You can now close the CLI.")
-                input("\nPress Enter to exit...")
-                import sys
-                sys.exit(0)
-            else:
-                print("\n[ERROR] Error shutting down server")
-        except requests.exceptions.ConnectionError:
+        print("\n[INFO] Sending shutdown request to server...")
+        response = self._post("/shutdown")
+        if response and response.status_code == 200:
+            print("\n[OK] Server shutdown initiated successfully!")
+            print("[INFO] Data saved, monitoring stopped.")
+            print("[INFO] You can now close the CLI.")
+            input("\nPress Enter to exit...")
+            import sys
+            sys.exit(0)
+        elif response:
+            print("\n[ERROR] Error shutting down server")
+        else:
             print("\n[INFO] Server has shut down (connection closed).")
             input("\nPress Enter to exit...")
             import sys
             sys.exit(0)
-        except Exception as e:
-            print(f"\n[ERROR] Error: {e}")
     
     def admin_menu(self):
         """Admin menu for vehicle management"""

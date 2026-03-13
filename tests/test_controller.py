@@ -26,8 +26,13 @@ class TestSmartMoveCentralController(unittest.TestCase):
         self.user_repo = UserCSVRepository(f"{self.test_dir}/users.csv")
         self.rental_repo = RentalCSVRepository(f"{self.test_dir}/rentals.csv")
         
-        # Initialize audit logger
-        self.audit_logger = AuditLogger(f"{self.test_dir}/audit.log")
+        # Initialize audit logger (use dummy logger to avoid disk usage)
+        class DummyLogger:
+            def __init__(self):
+                self.events = []
+            def logEvent(self, msg):
+                self.events.append(msg)
+        self.audit_logger = DummyLogger()
         
         # Initialize persistence manager
         self.persistence_manager = PersistenceManager(
