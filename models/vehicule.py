@@ -6,6 +6,15 @@ from .gps_location import GPSLocation
 
 class Vehicule(ABC):
     """Abstract base class for all vehicles with robust state machine."""
+
+    _ALLOWED_TRANSITIONS = {
+        State.AVAILABLE: {State.AVAILABLE, State.RESERVED, State.MAINTENANCE, State.EMERGENCYLOCK, State.RELOCATING},
+        State.RESERVED: {State.RESERVED, State.INUSE, State.AVAILABLE, State.EMERGENCYLOCK, State.MAINTENANCE},
+        State.INUSE: {State.INUSE, State.AVAILABLE, State.MAINTENANCE, State.EMERGENCYLOCK},
+        State.MAINTENANCE: {State.MAINTENANCE, State.AVAILABLE, State.EMERGENCYLOCK},
+        State.EMERGENCYLOCK: {State.EMERGENCYLOCK, State.AVAILABLE, State.MAINTENANCE},
+        State.RELOCATING: {State.RELOCATING, State.AVAILABLE},
+    }
     
     vehiculeId: int
     telemetryData: TelemetryData
@@ -24,8 +33,8 @@ class Vehicule(ABC):
         self.telemetryData = telemetryData
 
     def changeState(self, newState: State) -> None:
-        if self.state == State.MAINTENANCE and newState == State.INUSE:
-            print(f"Not possible to change Vehicle {self.vehiculeId} from MAINTENANCE to IN USE")
+        if newState not in self._ALLOWED_TRANSITIONS.get(self.state, set()):
+            print(f"Not possible to change Vehicle {self.vehiculeId} from {self.state} to {newState}")
             return
         
         print(f"Vehicle {self.vehiculeId} is changing state from {self.state} to {newState}")
