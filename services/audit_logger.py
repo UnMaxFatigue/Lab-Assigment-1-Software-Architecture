@@ -29,6 +29,8 @@ class AuditLogger:
         self.entries = []
         if os.path.exists(logFilePath):
             self._load_entries_from_file()
+            if not self.validateIntegrity():
+                raise ValueError("Audit log integrity check failed")
     
     def _load_entries_from_file(self) -> None:
         """Load existing entries from the CSV file."""
