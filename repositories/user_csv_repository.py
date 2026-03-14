@@ -16,13 +16,14 @@ class UserCSVRepository:
         """Save users to CSV file."""
         os.makedirs(os.path.dirname(self.filePath), exist_ok=True)
         with open(self.filePath, 'w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['name', 'password_hash']
+            fieldnames = ['name', 'password_hash', 'password_salt']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             for user in users:
                 row = {
                     'name': user.name,
-                    'password_hash': user.password_hash
+                    'password_hash': user.password_hash,
+                    'password_salt': user.password_salt
                 }
                 writer.writerow(row)
             # Ensure data is written to disk
@@ -38,7 +39,8 @@ class UserCSVRepository:
             for row in reader:
                 name = row['name']
                 password_hash = row.get('password_hash', '')
-                user = User(name, password_hash)
+                password_salt = row.get('password_salt', '')
+                user = User(name, password_hash, password_salt)
                 users.append(user)
         return users
     
