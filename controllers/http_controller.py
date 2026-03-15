@@ -126,400 +126,278 @@ class HttpHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        if self.path == "/login":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                username = data.get("username")
-                password = data.get("password")
-                
-                if self.moveControl.authenticateUser(username, password):
-                    # Find user index
-                    user_index = -1
-                    for index, user in enumerate(self.moveControl.users):
-                        if user.name == username:
-                            user_index = index
-                            break
-                    
-                    if user_index >= 0:
-                        user_data = {
-                            "userId": user_index,
-                            "username": username
-                        }
-                        self.responseJson(200, json.dumps(user_data))
-                    else:
-                        self.send_response(401)
-                        self.end_headers()
-                else:
-                    self.send_response(401)  # Unauthorized
-                    self.end_headers()
-            
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-        
-        elif self.path == "/reserveVehicle":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                user = self.moveControl.getUserFromId(data.get("userId"))
-                vehicle = self.moveControl.getVehicleFromId(data.get("vehicleId"))
-                
-                if user is None or vehicle is None:
-                    self.send_response(422)
-                    self.end_headers()
-                else:
-                    reserveCheck = self.moveControl.rentVehicule(
-                            vehicle, 
-                            user, 
-                            datetime.now() 
-                            )
+        dispatch = {
+            "/login": self._handle_login,
+            "/reserveVehicle": self._handle_reserve_vehicle,
+            "/activateVehicle": self._handle_activate_vehicle,
+            "/cancelRental": self._handle_cancel_rental,
+            "/returnVehicle": self._handle_return_vehicle,
+            "/assignMaintenance": self._handle_assign_maintenance,
+            "/completeMaintenance": self._handle_complete_maintenance,
+            "/assignRelocation": self._handle_assign_relocation,
+            "/completeRelocation": self._handle_complete_relocation,
+            "/requestEmUnlock": self._handle_request_em_unlock,
+            "/update": self._handle_update,
+            "/registerVehicle": self._handle_register_vehicle,
+            "/registerUser": self._handle_register_user,
+            "/shutdown": self._handle_shutdown
+        }
 
-                    if reserveCheck:
-                        self.send_response(200)
-                        self.end_headers()
-                    else:
-                        self.send_response(422)
-                        self.end_headers()
+        handler = dispatch.get(self.path)
+        if handler:
+            handler()
+            return
 
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
+        self.send_response(404)
+        self.end_headers()
 
-        elif self.path == "/activateVehicle":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                rental = self.moveControl.getRentalFromNameId(
-                        data.get("username"),
-                        int(data.get("vehicleId"))
-                        )
-                
-                if rental is None:
-                    self.send_response(422)
-                    self.send_header("Content-Type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": "Rental not found"}).encode())
-                else:
-                    success, error_msg = self.moveControl.activateRental(rental)
-                    if success:
-                        self.send_response(200)
-                        self.end_headers()
-                    else:
-                        self.send_response(422)
-                        self.send_header("Content-Type", "application/json")
-                        self.end_headers()
-                        self.wfile.write(json.dumps({"error": error_msg or "Cannot activate rental"}).encode())
+    def _handle_login(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
 
-            except (json.JSONDecodeError, ValueError):
-                self.send_response(400)
-                self.end_headers()
+        username = data.get("username"); password = data.get("password")
+        if self.moveControl.authenticateUser(username, password):
+            user_index = next((i for i, user in enumerate(self.moveControl.users) if user.name == username), -1)
+            if user_index >= 0:
+                self._respond_success({"userId": user_index, "username": username})
+                return
+        self._respond_error(401)
 
-        elif self.path == "/cancelRental":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                rental = self.moveControl.getRentalFromNameId(
-                        data.get("username"),
-                        int(data.get("vehicleId"))
-                        )
-                
-                if rental is None:
-                    self.send_response(422)
-                    self.end_headers()
-                else:
-                    cancelCheck = self.moveControl.cancelRental(rental)
-                    if cancelCheck:
-                        self.send_response(200)
-                        self.end_headers()
-                    else:
-                        self.send_response(422)
-                        self.end_headers()
+    def _handle_reserve_vehicle(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
 
-            except (json.JSONDecodeError, ValueError):
-                self.send_response(400)
-                self.end_headers()
-
-        elif self.path == "/returnVehicle":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                rental = self.moveControl.getRentalFromNameId(
-                        data.get("username"),
-                        int(data.get("vehicleId"))
-                        )
-                
-                if rental is None:
-                    self.send_response(422)
-                    self.end_headers()
-                else:
-                    returnCheck = self.moveControl.returnVehicule(rental)
-                    if returnCheck:
-                        # Return cost information
-                        duration = rental.calculateRentalDuration()
-                        response_data = {
-                            "success": True,
-                            "cost": rental.cost if rental.cost else 0.0,
-                            "duration_minutes": duration if duration else 0.0
-                        }
-                        self.responseJson(200, json.dumps(response_data))
-                    else:
-                        self.send_response(422)
-                        self.end_headers()
-
-            except (json.JSONDecodeError, ValueError):
-                self.send_response(400)
-                self.end_headers()
-
-        elif self.path == "/assignMaintenance":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                vehicle = self.moveControl.getVehicleFromId(int(data.get("vehicleId")))
-                
-                if vehicle is None:
-                    self.send_response(422)
-                    self.end_headers()
-                else:
-                    reserveCheck = self.moveControl.assignMaintenance(vehicle)
-                    if reserveCheck:
-                        self.send_response(200)
-                        self.end_headers()
-                    else:
-                        self.send_response(422)
-                        self.end_headers()
-
-            except (json.JSONDecodeError, ValueError):
-                self.send_response(400)
-                self.end_headers()
-
-        elif self.path == "/completeMaintenance":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                vehicle = self.moveControl.getVehicleFromId(data.get("vehicleId"))
-                
-                if vehicle is None:
-                    self.send_response(422)
-                    self.end_headers()
-                else:
-                    reserveCheck = self.moveControl.completeMaintenance(vehicle)
-                    if reserveCheck:
-                        self.send_response(200)
-                        self.end_headers()
-                    else:
-                        self.send_response(422)
-                        self.end_headers()
-
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-        
-        elif self.path == "/assignRelocation":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                vehicle = self.moveControl.getVehicleFromId(int(data.get("vehicleId")))
-                
-                if vehicle is None:
-                    self.send_response(422)
-                    self.end_headers()
-                else:
-                    reserveCheck = self.moveControl.relocateVehicule(vehicle)
-                    if reserveCheck:
-                        self.send_response(200)
-                        self.end_headers()
-                    else:
-                        self.send_response(422)
-                        self.end_headers()
-
-            except (json.JSONDecodeError, ValueError):
-                self.send_response(400)
-                self.end_headers()
-
-        elif self.path == "/completeRelocation":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                vehicle = self.moveControl.getVehicleFromId(int(data.get("vehicleId")))
-                
-                if vehicle is None:
-                    self.send_response(422)
-                    self.end_headers()
-                else:
-                    reserveCheck = self.moveControl.completeRelocation(vehicle)
-                    if reserveCheck:
-                        self.send_response(200)
-                        self.end_headers()
-                    else:
-                        self.send_response(422)
-                        self.end_headers()
-
-            except (json.JSONDecodeError, ValueError):
-                self.send_response(400)
-                self.end_headers()
-
-        elif self.path == "/requestEmUnlock":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                vehicle = self.moveControl.getVehicleFromId(data.get("vehicleId"))
-                
-                if vehicle is None:
-                    self.send_response(422)
-                    self.end_headers()
-                else:
-                    reserveCheck = self.moveControl.unlockVehicule(vehicle)
-                    if reserveCheck:
-                        self.send_response(200)
-                        self.end_headers()
-                    else:
-                        self.send_response(422)
-                        self.end_headers()
-
-            except json.JSONDecodeError:
-                self.send_response(400)
-                self.end_headers()
-
-        elif self.path == "/update":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                vehicle = self.moveControl.getVehicleFromId(int(data.get("vehicleId")))
-                
-                if vehicle is None:
-                    self.send_response(422)
-                    self.end_headers()
-                else:
-                    # Extract telemetry data from request
-                    from models import TelemetryData, GPSLocation
-                    
-                    batteryLevel = int(data.get("batteryLevel", vehicle.telemetryData.batteryLevel))
-                    temperature = int(data.get("temperature", vehicle.telemetryData.temperature))
-                    isFaulted = data.get("isFaulted", False)
-                    
-                    location = None
-                    if "latitude" in data and "longitude" in data:
-                        location = GPSLocation(float(data["latitude"]), float(data["longitude"]))
-                    
-                    newTelemetry = TelemetryData(batteryLevel, temperature, location, isFaulted)
-                    
-                    self.moveControl.processTelemetryData(vehicle, newTelemetry)
-                    self.send_response(200)
-                    self.end_headers()
-
-            except (json.JSONDecodeError, ValueError):
-                self.send_response(400)
-                self.end_headers()
-
-
-        elif self.path == "/registerVehicle":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                vehicleId = int(data.get("vehicleId"))
-                vehicleType = data.get("vehicleType")
-                
-                registerCheck = self.moveControl.registerVehicle(vehicleId, vehicleType)
-                if registerCheck:
-                    self.send_response(200)
-                    self.end_headers()
-                else:
-                    self.send_response(422)
-                    self.end_headers()
-
-            except (json.JSONDecodeError, ValueError):
-                self.send_response(400)
-                self.end_headers()
-    
-        elif self.path == "/registerUser":
-            contentLength = int(self.headers.get('Content-Length',0))
-            content = self.rfile.read(contentLength).decode("utf-8")
-            
-            try:
-                data = json.loads(content)
-                username = data.get("username")
-                password = data.get("password", "")
-                
-                registerCheck = self.moveControl.registerUser(username, password)
-                if registerCheck:
-                    response_data = {"success": True, "username": username}
-                    self.responseJson(200, json.dumps(response_data))
-                else:
-                    response_data = {"success": False, "error": "Username already exists"}
-                    self.responseJson(422, json.dumps(response_data))
-
-            except (json.JSONDecodeError, ValueError):
-                response_data = {"success": False, "error": "Invalid request"}
-                self.responseJson(400, json.dumps(response_data))
-
-        elif self.path == "/shutdown":
-            # Shutdown endpoint for graceful server termination
-            try:
-                print("\n[SHUTDOWN] Received shutdown request...")
-                
-                # Save all data before shutting down
-                print("[SHUTDOWN] Saving data...")
-                self.moveControl.saveData()
-                
-                # Stop background monitoring
-                print("[SHUTDOWN] Stopping background monitoring...")
-                self.moveControl.stopBackgroundMonitoring()
-                
-                # Send success response
-                response_data = {"success": True, "message": "Server shutting down gracefully"}
-                self.responseJson(200, json.dumps(response_data))
-                
-                # Schedule server shutdown in a separate thread to allow response to complete
-                import threading
-                def delayed_shutdown():
-                    import time
-                    time.sleep(1)  # Give time for response to be sent
-                    print("[SHUTDOWN] Stopping server...")
-                    self.server.shutdown()
-                
-                shutdown_thread = threading.Thread(target=delayed_shutdown, daemon=True)
-                shutdown_thread.start()
-                
-            except Exception as e:
-                print(f"[SHUTDOWN] Error during shutdown: {e}")
-                response_data = {"success": False, "error": str(e)}
-                self.responseJson(500, json.dumps(response_data))
-
+        user = self.moveControl.getUserFromId(data.get("userId"))
+        vehicle = self.moveControl.getVehicleFromId(data.get("vehicleId"))
+        if user is None or vehicle is None:
+            self._respond_error(422); return
+        if self.moveControl.rentVehicule(vehicle, user, datetime.now()):
+            self._respond_success()
         else:
-            self.send_response(404)
-            self.end_headers()
+            self._respond_error(422)
 
+    def _handle_activate_vehicle(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+
+        try:
+            rental = self.moveControl.getRentalFromNameId(data.get("username"), int(data.get("vehicleId")))
+        except (TypeError, ValueError):
+            self._respond_error(400); return
+
+        if rental is None:
+            self._respond_error(422, {"error": "Rental not found"}); return
+        success, error_msg = self.moveControl.activateRental(rental)
+        if success:
+            self._respond_success(); return
+        self._respond_error(422, {"error": error_msg or "Cannot activate rental"})
+
+    def _handle_cancel_rental(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+
+        try:
+            rental = self.moveControl.getRentalFromNameId(data.get("username"), int(data.get("vehicleId")))
+        except (TypeError, ValueError):
+            self._respond_error(400); return
+        if rental is None:
+            self._respond_error(422); return
+
+        if self.moveControl.cancelRental(rental):
+            self._respond_success()
+        else:
+            self._respond_error(422)
+
+    def _handle_return_vehicle(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+
+        try:
+            rental = self.moveControl.getRentalFromNameId(data.get("username"), int(data.get("vehicleId")))
+        except (TypeError, ValueError):
+            self._respond_error(400); return
+        if rental is None:
+            self._respond_error(422); return
+
+        if self.moveControl.returnVehicule(rental):
+            duration = rental.calculateRentalDuration()
+            self._respond_success({"success": True, "cost": rental.cost if rental.cost else 0.0, "duration_minutes": duration if duration else 0.0})
+        else:
+            self._respond_error(422)
+
+    def _handle_assign_maintenance(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+        try:
+            vehicle = self.moveControl.getVehicleFromId(int(data.get("vehicleId")))
+        except (TypeError, ValueError):
+            self._respond_error(400); return
+        if vehicle is None:
+            self._respond_error(422); return
+        if self.moveControl.assignMaintenance(vehicle):
+            self._respond_success()
+        else:
+            self._respond_error(422)
+
+    def _handle_complete_maintenance(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+        vehicle = self.moveControl.getVehicleFromId(data.get("vehicleId"))
+        if vehicle is None:
+            self._respond_error(422); return
+        if self.moveControl.completeMaintenance(vehicle):
+            self._respond_success()
+        else:
+            self._respond_error(422)
+
+    def _handle_assign_relocation(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+        try:
+            vehicle = self.moveControl.getVehicleFromId(int(data.get("vehicleId")))
+        except (TypeError, ValueError):
+            self._respond_error(400); return
+        if vehicle is None:
+            self._respond_error(422); return
+        if self.moveControl.relocateVehicule(vehicle):
+            self._respond_success();
+        else:
+            self._respond_error(422)
+
+    def _handle_complete_relocation(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+        try:
+            vehicle = self.moveControl.getVehicleFromId(int(data.get("vehicleId")))
+        except (TypeError, ValueError):
+            self._respond_error(400); return
+        if vehicle is None:
+            self._respond_error(422); return
+        if self.moveControl.completeRelocation(vehicle):
+            self._respond_success()
+        else:
+            self._respond_error(422)
+
+    def _handle_request_em_unlock(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+        vehicle = self.moveControl.getVehicleFromId(data.get("vehicleId"))
+        if vehicle is None:
+            self._respond_error(422); return
+        if self.moveControl.unlockVehicule(vehicle):
+            self._respond_success();
+        else:
+            self._respond_error(422)
+
+    def _handle_update(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+        try:
+            vehicle = self.moveControl.getVehicleFromId(int(data.get("vehicleId")))
+        except (TypeError, ValueError):
+            self._respond_error(400); return
+        if vehicle is None:
+            self._respond_error(422); return
+
+        from models import TelemetryData, GPSLocation
+        batteryLevel = int(data.get("batteryLevel", vehicle.telemetryData.batteryLevel))
+        temperature = int(data.get("temperature", vehicle.telemetryData.temperature))
+        isFaulted = data.get("isFaulted", False)
+        location = None
+        if "latitude" in data and "longitude" in data:
+            try:
+                location = GPSLocation(float(data["latitude"]), float(data["longitude"]))
+            except (TypeError, ValueError):
+                pass
+        newTelemetry = TelemetryData(batteryLevel, temperature, location, isFaulted)
+        self.moveControl.processTelemetryData(vehicle, newTelemetry)
+        self._respond_success()
+
+    def _handle_register_vehicle(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400); return
+        try:
+            vehicleId = int(data.get("vehicleId"))
+        except (TypeError, ValueError):
+            self._respond_error(400); return
+        vehicleType = data.get("vehicleType")
+        if self.moveControl.registerVehicle(vehicleId, vehicleType):
+            self._respond_success()
+        else:
+            self._respond_error(422)
+
+    def _handle_register_user(self):
+        data = self._parse_json_body();
+        if data is None:
+            self._respond_error(400, {"success": False, "error": "Invalid request"}); return
+        username = data.get("username")
+        password = data.get("password", "")
+        if self.moveControl.registerUser(username, password):
+            self._respond_success({"success": True, "username": username})
+        else:
+            self._respond_error(422, {"success": False, "error": "Username already exists"})
+
+    def _handle_shutdown(self):
+        try:
+            print("\n[SHUTDOWN] Received shutdown request...")
+            print("[SHUTDOWN] Saving data...")
+            self.moveControl.saveData()
+            print("[SHUTDOWN] Stopping background monitoring...")
+            self.moveControl.stopBackgroundMonitoring()
+            self._respond_success({"success": True, "message": "Server shutting down gracefully"})
+            import threading
+            def delayed_shutdown():
+                import time
+                time.sleep(1)
+                print("[SHUTDOWN] Stopping server...")
+                self.server.shutdown()
+            threading.Thread(target=delayed_shutdown, daemon=True).start()
+        except Exception as e:
+            print(f"[SHUTDOWN] Error during shutdown: {e}")
+            self.responseJson(500, json.dumps({"success": False, "error": str(e)}))
 
     def responseJson(self, code: int, json_data: str):
         self.send_response(code)
         self.send_header("Content-type", "application/json")
         self.end_headers()
         self.wfile.write(json_data.encode("utf-8"))
+
+    def _parse_json_body(self):
+        contentLength = int(self.headers.get('Content-Length', 0))
+        if contentLength <= 0:
+            return None
+        content = self.rfile.read(contentLength).decode("utf-8")
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return None
+
+    def _respond_error(self, code=400, body=None):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        if body is not None:
+            self.wfile.write(json.dumps(body).encode("utf-8"))
+
+    def _respond_success(self, body=None):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        if body is not None:
+            self.wfile.write(json.dumps(body).encode("utf-8"))
+
 
 def initializeServer(
         moveControl: SmartMoveCentralController,

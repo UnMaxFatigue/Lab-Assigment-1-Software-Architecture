@@ -5,6 +5,7 @@ Coverage target: 40%+
 import unittest
 import os
 import tempfile
+import time
 from datetime import datetime
 from models import State, User, Rental, TelemetryData, GPSLocation, RentalStatus
 from vehicules import Bike, Scooter, Moped
@@ -275,6 +276,33 @@ class TestSmartMoveCentralController(unittest.TestCase):
         
         self.assertEqual(len(new_controller.vehicules), 3)
         self.assertEqual(len(new_controller.users), 1)
+
+    def test_handle_overheating_no_lock_without_rental(self):
+        self.test_bike.telemetryData.temperature = 65
+        result = self.controller._handleOverheatingNoLock(self.test_bike, None)
+        self.assertFalse(result)
+        self.assertEqual(self.test_bike.state, State.EMERGENCYLOCK)
+
+    def test_handle_battery_critical_no_lock_without_rental(self):
+        self.test_bike.telemetryData.batteryLevel = 3
+        result = self.controller._handleBatteryCriticalNoLock(self.test_bike, None)
+        self.assertFalse(result)
+        self.assertEqual(self.test_bike.state, State.MAINTENANCE)
+
+    def test_return_vehicle_no_lock(self):
+        rental = self.controller.rentVehicule(self.test_bike, self.test_user, datetime.now())
+        self.controller.activateRental(rental)
+        result = self.controller._returnVehiculeNoLock(rental, emergency=False)
+        self.assertTrue(result)
+        self.assertEqual(rental.status, RentalStatus.COMPLETED)
+        self.assertEqual(self.test_bike.state, State.AVAILABLE)
+
+    def test_background_monitoring_start_stop(self):
+        self.controller.startBackgroundMonitoring(interval_seconds=0.01)
+        self.assertTrue(self.controller._monitoring_enabled)
+        time.sleep(0.05)
+        self.controller.stopBackgroundMonitoring()
+        self.assertFalse(self.controller._monitoring_enabled)
 
 
 class TestModels(unittest.TestCase):
