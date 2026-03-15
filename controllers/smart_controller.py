@@ -1,7 +1,8 @@
 from typing import Optional, List, Tuple
 from models import Vehicule, Rental, User, GPSLocation, TelemetryData
 from regulations import Regulation
-from services import PersistenceManager, AuditLogger
+from services import PersistenceManager, AuditLogger, EventBus
+from services import telemetry_handlers
 from datetime import datetime
 from models import RentalStatus, State
 from vehicules import Bike, Moped, Scooter
@@ -34,6 +35,16 @@ class SmartMoveCentralController:
         self._lock = threading.RLock()  # Reentrant lock for thread safety
         self._monitoring_enabled = False
         self._telemetry_monitor_thread = None
+        self._event_bus = EventBus()
+        self._registerTelemetryHandlers()
+
+    def _registerTelemetryHandlers(self) -> None:
+        """Register telemetry event handlers on the internal event bus."""
+        self._event_bus.subscribe("telemetry_received", telemetry_handlers.handle_overheating)
+        self._event_bus.subscribe("telemetry_received", telemetry_handlers.handle_battery_critical)
+        self._event_bus.subscribe("telemetry_received", telemetry_handlers.handle_location_and_regulations)
+        self._event_bus.subscribe("telemetry_received", telemetry_handlers.handle_theft_detection)
+        self._event_bus.subscribe("telemetry_received", telemetry_handlers.handle_audit)
     
     def loadData(self) -> None:
         """Load all data from repositories at startup."""
@@ -302,28 +313,15 @@ class SmartMoveCentralController:
             vehicule.updateTelemetry(newTelemetryData)
 
             active_rental = self._findActiveRentalNoLock(vehicule) if vehicule.hasActiveRental else None
-
-            if self._handleOverheatingNoLock(vehicule, active_rental):
-                return
-
-            if self._handleBatteryCriticalNoLock(vehicule, active_rental):
-                return
-            
-            # Update last known location
-            if newTelemetryData.location:
-                vehicule.lastKnownLocation = newTelemetryData.location
-
-            if self.regulations:
-                vehicle_location = vehicule.lastKnownLocation
-                applicable_regulations = self._getApplicableRegulations(vehicle_location)
-                for regulation in applicable_regulations:
-                    regulation.applyInTripRegulation(vehicule, active_rental)
-            
-            self._handleTheftDetectionNoLock(vehicule, previous_location)
-
-            
-            if self.auditLogger:
-                self.auditLogger.logEvent(f"TELEMETRY_PROCESSED: Vehicle {vehicule.vehiculeId}")
+            event = {
+                "controller": self,
+                "vehicule": vehicule,
+                "active_rental": active_rental,
+                "previous_location": previous_location,
+                "new_location": newTelemetryData.location,
+                "stop_processing": False,
+            }
+            self._event_bus.publish("telemetry_received", event)
     
     def slowDownVehicle(self, vehicule: Vehicule, reason: str) -> None:
         """Request vehicle to slow down (hardware integration point)."""
@@ -371,6 +369,22 @@ class SmartMoveCentralController:
             self._saveAllOrRestore()
 
         return False
+
+    def _updateLocationAndApplyRegulationsNoLock(
+        self,
+        vehicule: Vehicule,
+        new_location: Optional[GPSLocation],
+        active_rental: Optional[Rental],
+    ) -> None:
+        """Update last known location and apply in-trip regulations."""
+        if new_location:
+            vehicule.lastKnownLocation = new_location
+
+        if self.regulations:
+            vehicle_location = vehicule.lastKnownLocation
+            applicable_regulations = self._getApplicableRegulations(vehicle_location)
+            for regulation in applicable_regulations:
+                regulation.applyInTripRegulation(vehicule, active_rental)
 
     def _handleTheftDetectionNoLock(self, vehicule: Vehicule, previous_location: Optional[GPSLocation]) -> None:
         """Detect unauthorized movement and lock the vehicle when needed."""
