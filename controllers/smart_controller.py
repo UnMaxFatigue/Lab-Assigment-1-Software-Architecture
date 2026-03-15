@@ -41,6 +41,7 @@ class SmartMoveCentralController:
             self.vehicules, self.users, self.rentals = self.persistenceManager.loadAll()
             
             # Fix rental references: associate with actual vehicles and users
+            valid_rentals: List[Rental] = []
             for rental in self.rentals:
                 # Find the actual vehicle by ID
                 actual_vehicle = None
@@ -53,6 +54,7 @@ class SmartMoveCentralController:
                     rental.vehicule = actual_vehicle
                 else:
                     print(f"[WARNING] Rental references non-existent vehicle ID: {rental.vehicule.vehiculeId}")
+                    continue
                 
                 # Find the actual user by name
                 actual_user = self.findUserByName(rental.user.name)
@@ -60,6 +62,14 @@ class SmartMoveCentralController:
                     rental.user = actual_user
                 else:
                     print(f"[WARNING] Rental references non-existent user: {rental.user.name}")
+                    continue
+
+                valid_rentals.append(rental)
+
+            # Drop invalid rentals to keep in-memory state consistent
+            if len(valid_rentals) != len(self.rentals):
+                print(f"[WARNING] Dropped {len(self.rentals) - len(valid_rentals)} invalid rentals during load")
+            self.rentals = valid_rentals
             
             # Synchronize vehicle states with active rentals
             for rental in self.rentals:
